@@ -1,0 +1,107 @@
+//@version=5
+// 由 gex_levels.py 自動產生,內含全部歷史(12 天)。每天:整份複製貼進 Pine 編輯器 -> 儲存 / 更新圖表。
+// 線用 plot 畫(不是 line.new),沒有 500 條上限;每天的價位只出現在當天時段,不會往右延伸。
+indicator("NQ GEX Levels (history)", overlay=true, max_labels_count=500, max_lines_count=500)
+
+sess      = input.session("0930-1615", "線的時段(紐約時間)", group="時段", tooltip="每天的價位只畫在這個時段。請維持在同一個紐約日曆日內。僅支援日內週期圖(1m~4h)。")
+basis1    = input.string("OI", "第一組:資料", options=["OI", "VOL"], group="顯示", tooltip="OI=前一日留倉量;VOL=今日成交量(開盤第一波只有幾分鐘成交量,雜訊大)")
+scope1    = input.string("ALL", "第一組:範圍", options=["ALL", "EX0"], group="顯示", tooltip="ALL=含 0DTE;EX0=排除 0DTE")
+show2     = input.bool(false, "同時顯示第二組(半透明)", group="第二組")
+basis2    = input.string("OI", "第二組:資料", options=["OI", "VOL"], group="第二組")
+scope2    = input.string("EX0", "第二組:範圍", options=["ALL", "EX0"], group="第二組")
+showNQ    = input.bool(true,  "NQ",  group="來源", inline="s")
+showQQQ   = input.bool(true,  "QQQ", group="來源", inline="s")
+showNDX   = input.bool(true,  "NDX", group="來源", inline="s")
+showSUM   = input.bool(false, "三者合計", group="來源", inline="s")
+showCall  = input.bool(true, "Call wall", group="價位種類", inline="k")
+showPut   = input.bool(true, "Put wall",  group="價位種類", inline="k")
+showFlip  = input.bool(true, "Flip(虛線)", group="價位種類", inline="k")
+cNQ  = input.color(color.new(#f5a623, 0), "NQ 顏色",  group="顏色")
+cQQQ = input.color(color.new(#4a90e2, 0), "QQQ 顏色", group="顏色")
+cNDX = input.color(color.new(#7ed321, 0), "NDX 顏色", group="顏色")
+cSUM = input.color(color.new(#bd10e0, 0), "合計 顏色", group="顏色")
+lineW = input.int(1, "線寬", minval=1, maxval=3, group="樣式")
+labelDays = input.int(999, "標籤顯示最近幾天(0=不顯示)", minval=0, maxval=999, group="樣式", tooltip="在每天線的起點標出 來源/種類/價位。預設每天都標。TradingView 一個腳本最多 500 個標籤,超過時最舊的會被自動刪掉;想圖乾淨可改小。")
+
+var float[] dates = array.new_float()
+var float[] vals  = array.new_float()
+var int NS = 48
+
+if barstate.isfirst
+    rows = array.new_string()
+    array.push(rows, "20261001,30700.00,30500.00,30678.39,30900.00,30200.00,30627.34,30800.00,30800.00,30745.80,30800.00,30800.00,30930.47,30895.50,30688.25,30752.93,30895.50,30273.50,30799.91,30688.25,30605.25,30685.22,30895.50,30605.25,30713.01,30766.50,30665.50,30534.88,30968.25,30665.50,30089.09,30766.50,30564.75,30675.43,30817.00,30262.00,30637.16,30900.00,30700.00,30713.07,30900.00,30275.00,30716.04,30700.00,30600.00,30687.76,30900.00,30600.00,30739.12")
+    array.push(rows, "20261002,31000.00,30800.00,30725.63,31000.00,30900.00,30581.43,31200.00,30800.00,30984.38,31200.00,31000.00,31028.51,31093.50,30679.00,30828.45,31300.75,30513.00,30724.49,31093.50,31093.50,30996.69,31093.50,31010.50,31172.66,31257.25,30753.00,30274.35,30954.75,30450.50,,31257.25,30753.00,31052.11,31459.00,30450.50,30763.75,31100.00,30675.00,30774.15,31250.00,30525.00,30585.87,31100.00,31100.00,31003.57,31100.00,31000.00,31055.98")
+    array.push(rows, "20261005,31300.00,30900.00,30917.66,31350.00,30500.00,30706.96,31000.00,31000.00,30855.23,31300.00,31000.00,30990.21,31289.50,30667.75,31030.99,31248.00,30667.75,30945.83,31123.75,31082.25,30974.73,31082.25,30667.75,31135.11,31345.00,31042.50,30618.48,31345.00,30740.25,,31244.25,31143.25,31068.10,31445.75,30437.75,30912.01,31250.00,31050.00,30942.19,31250.00,30675.00,30788.99,31200.00,31075.00,30947.48,31200.00,30675.00,31070.21")
+    array.push(rows, "20261006,31600.00,31000.00,31079.93,31350.00,31000.00,30763.22,31500.00,31400.00,31408.88,31500.00,31000.00,31310.42,31494.25,31038.25,31386.58,31494.25,31038.25,31162.72,31535.50,31452.75,31540.97,31494.25,31494.25,31606.16,31346.25,31245.50,30911.79,31346.25,31245.50,30503.63,31548.00,31245.50,31493.34,31900.75,30943.25,31442.13,31500.00,31050.00,31278.40,31500.00,31050.00,30980.47,31500.00,31450.00,31504.43,31500.00,31500.00,31493.78")
+    array.push(rows, "20261007,31350.00,31000.00,31160.69,31350.00,31000.00,31035.13,31500.00,31200.00,31437.62,31500.00,31000.00,31413.47,31239.25,31280.75,31462.11,31239.25,31280.75,31537.61,31280.75,31198.00,31260.05,31239.25,31239.25,31449.77,31245.00,31245.00,31208.23,31346.00,31245.00,30978.90,31396.25,31245.00,31286.89,31144.25,31245.00,31054.61,31250.00,31275.00,31384.78,31250.00,31250.00,31348.86,31275.00,31200.00,31337.16,31500.00,31250.00,31388.54")
+    array.push(rows, "20261008,31350.00,31000.00,31216.32,31300.00,31000.00,31169.23,31400.00,31200.00,31295.52,31400.00,31000.00,31215.37,31235.75,31070.00,31433.97,31235.75,31235.75,31363.87,31277.25,31194.25,31193.42,31277.25,31277.25,31162.41,31232.25,31232.25,31019.74,31534.50,31232.25,30544.36,31333.00,31232.25,31214.00,31534.50,30879.75,31133.44,31225.00,31225.00,31331.92,31225.00,31225.00,31193.91,31275.00,31200.00,31226.23,31275.00,31275.00,31176.97")
+    array.push(rows, "20261012,31100.00,31000.00,30963.50,31500.00,30500.00,30827.34,31100.00,31000.00,31079.84,31200.00,31000.00,31048.21,31056.50,31056.50,31014.06,31470.50,30642.50,30911.79,30973.75,30932.25,31001.83,31056.50,30973.75,31068.08,31221.25,31019.75,30871.48,31221.25,30717.50,30697.33,31070.00,30919.00,30848.09,31019.75,30717.50,30583.19,31050.00,31050.00,30980.11,31475.00,30650.00,30856.22,30975.00,30925.00,31001.06,31025.00,30975.00,30985.99")
+    array.push(rows, "20261013,31000.00,30750.00,30957.13,31000.00,30500.00,30896.61,30800.00,30650.00,30771.93,31000.00,30000.00,30583.20,31055.50,30641.50,30885.23,31055.50,30641.50,30856.81,30765.75,30641.50,30588.54,30765.75,30641.50,30525.99,31022.00,30719.75,30825.93,31022.00,30518.25,30774.52,30971.50,30518.25,30686.19,31223.25,30216.25,30676.24,31050.00,30650.00,30880.47,31050.00,30650.00,30840.46,30775.00,30650.00,30640.49,30775.00,30650.00,30559.73")
+    array.push(rows, "20261014,30500.00,30350.00,30834.36,30500.00,30000.00,30788.29,30800.00,30500.00,30714.60,31000.00,30500.00,30769.92,31052.00,30638.00,30793.61,31052.00,30638.00,30817.98,30596.50,30513.75,30615.79,30638.00,30223.75,30657.37,30223.25,30525.50,30769.23,30223.25,30525.50,30748.04,30928.50,30525.50,30629.97,30827.75,30576.00,30574.07,30225.00,30650.00,30794.90,30225.00,30650.00,30799.63,30600.00,30525.00,30649.35,30650.00,30225.00,30690.27")
+    array.push(rows, "20261015,30000.00,30000.00,30802.13,30000.00,30000.00,,29850.00,29750.00,29924.85,30000.00,30000.00,30152.34,29811.00,29811.00,30757.68,29811.00,29811.00,,29811.00,29686.75,29758.94,29811.00,29811.00,29923.47,29714.25,29714.25,30932.29,29966.25,30117.25,,30016.50,29714.25,29944.66,30218.00,29210.75,30241.63,29725.00,29725.00,30798.71,29800.00,29400.00,,29800.00,29675.00,29820.71,29800.00,29800.00,30035.80")
+    array.push(rows, "20261016,30000.00,30000.00,30342.45,30000.00,30000.00,30972.93,30100.00,29800.00,30000.53,30000.00,30000.00,30130.87,29798.00,29798.00,30228.68,30418.75,29384.25,30323.72,29922.25,29798.00,29885.83,30005.00,29798.00,29803.02,29949.50,29848.75,30166.60,29949.50,29395.75,30194.36,30050.00,29798.50,29885.53,29899.00,29999.75,29881.43,29800.00,29800.00,30223.56,30200.00,29800.00,30389.00,29925.00,29800.00,29893.75,30000.00,29800.00,29846.98")
+    array.push(rows, "20261019,30000.00,30000.00,30322.53,30000.00,30000.00,30725.09,29800.00,29500.00,29743.72,29900.00,30000.00,29716.65,29793.75,29380.00,29838.96,30414.50,29380.00,30027.67,29793.75,29711.00,29742.61,29793.75,29793.75,29800.70,29938.75,29284.50,30027.01,29938.75,29284.50,30247.90,29787.75,29687.25,29793.12,30190.25,29284.50,29886.92,29800.00,29375.00,29924.09,29800.00,29375.00,30135.13,29800.00,29700.00,29750.20,29800.00,29800.00,29798.43")
+    for r in rows
+        if str.length(r) > 8
+            f = str.split(r, ",")
+            if array.size(f) == NS + 1
+                array.push(dates, str.tonumber(array.get(f, 0)))
+                for j = 1 to NS
+                    c = array.get(f, j)
+                    array.push(vals, str.length(c) > 0 ? str.tonumber(c) : na)
+
+nyKey = year(time, "America/New_York") * 10000 + month(time, "America/New_York") * 100 + dayofmonth(time, "America/New_York")
+inSess = not na(time(timeframe.period, sess, "America/New_York"))
+idx = inSess ? array.binary_search(dates, nyKey) : -1
+
+sv(si, ki, setno) =>
+    bs = setno == 1 ? basis1 : basis2
+    sc = setno == 1 ? scope1 : scope2
+    off = ((si * 2 + (bs == "VOL" ? 1 : 0)) * 2 + (sc == "EX0" ? 1 : 0)) * 3 + ki
+    idx >= 0 ? array.get(vals, idx * NS + off) : na
+
+srcNames = array.from("NQ", "QQQ", "NDX", "SUM")
+kindNames = array.from("Call", "Put", "Flip")
+srcOnA = array.from(showNQ, showQQQ, showNDX, showSUM)
+kindOnA = array.from(showCall, showPut, showFlip)
+srcColA = array.from(cNQ, cQQQ, cNDX, cSUM)
+newSess = idx >= 0 and idx != nz(idx[1], -1)
+endH = int(str.tonumber(str.substring(sess, 5, 7)))
+endM = int(str.tonumber(str.substring(sess, 7, 9)))
+if newSess and showFlip
+    tEnd = timestamp("America/New_York", year(time, "America/New_York"), month(time, "America/New_York"), dayofmonth(time, "America/New_York"), endH, endM)
+    for setno = 1 to 2
+        if setno == 1 or show2
+            for si = 0 to 3
+                if array.get(srcOnA, si)
+                    fv = sv(si, 2, setno)
+                    if not na(fv)
+                        line.new(time, fv, tEnd, fv, xloc=xloc.bar_time, color=color.new(array.get(srcColA, si), setno == 1 ? 0 : 55), style=line.style_dashed, width=lineW + 1)
+
+if newSess and labelDays > 0 and idx >= array.size(dates) - labelDays
+    for setno = 1 to 2
+        if setno == 1 or show2
+            for si = 0 to 3
+                for ki = 0 to 2
+                    if array.get(srcOnA, si) and array.get(kindOnA, ki)
+                        v = sv(si, ki, setno)
+                        if not na(v)
+                            txt = array.get(srcNames, si) + " " + array.get(kindNames, ki) + (setno == 2 ? "②" : "") + " " + str.tostring(v, "#.##")
+                            label.new(bar_index, v, txt, style=label.style_none, textcolor=array.get(srcColA, si), size=size.small)
+
+plot((showNQ and showCall) ? sv(0, 0, 1) : na, "NQ CALL 組1", color=color.new(cNQ, 0), linewidth=lineW, style=plot.style_linebr, display=display.pane)
+plot((showNQ and showPut) ? sv(0, 1, 1) : na, "NQ PUT 組1", color=color.new(cNQ, 0), linewidth=lineW, style=plot.style_linebr, display=display.pane)
+plot((showQQQ and showCall) ? sv(1, 0, 1) : na, "QQQ CALL 組1", color=color.new(cQQQ, 0), linewidth=lineW, style=plot.style_linebr, display=display.pane)
+plot((showQQQ and showPut) ? sv(1, 1, 1) : na, "QQQ PUT 組1", color=color.new(cQQQ, 0), linewidth=lineW, style=plot.style_linebr, display=display.pane)
+plot((showNDX and showCall) ? sv(2, 0, 1) : na, "NDX CALL 組1", color=color.new(cNDX, 0), linewidth=lineW, style=plot.style_linebr, display=display.pane)
+plot((showNDX and showPut) ? sv(2, 1, 1) : na, "NDX PUT 組1", color=color.new(cNDX, 0), linewidth=lineW, style=plot.style_linebr, display=display.pane)
+plot((showSUM and showCall) ? sv(3, 0, 1) : na, "SUM CALL 組1", color=color.new(cSUM, 0), linewidth=lineW, style=plot.style_linebr, display=display.pane)
+plot((showSUM and showPut) ? sv(3, 1, 1) : na, "SUM PUT 組1", color=color.new(cSUM, 0), linewidth=lineW, style=plot.style_linebr, display=display.pane)
+plot((show2 and showNQ and showCall) ? sv(0, 0, 2) : na, "NQ CALL 組2", color=color.new(cNQ, 55), linewidth=lineW, style=plot.style_linebr, display=display.pane)
+plot((show2 and showNQ and showPut) ? sv(0, 1, 2) : na, "NQ PUT 組2", color=color.new(cNQ, 55), linewidth=lineW, style=plot.style_linebr, display=display.pane)
+plot((show2 and showQQQ and showCall) ? sv(1, 0, 2) : na, "QQQ CALL 組2", color=color.new(cQQQ, 55), linewidth=lineW, style=plot.style_linebr, display=display.pane)
+plot((show2 and showQQQ and showPut) ? sv(1, 1, 2) : na, "QQQ PUT 組2", color=color.new(cQQQ, 55), linewidth=lineW, style=plot.style_linebr, display=display.pane)
+plot((show2 and showNDX and showCall) ? sv(2, 0, 2) : na, "NDX CALL 組2", color=color.new(cNDX, 55), linewidth=lineW, style=plot.style_linebr, display=display.pane)
+plot((show2 and showNDX and showPut) ? sv(2, 1, 2) : na, "NDX PUT 組2", color=color.new(cNDX, 55), linewidth=lineW, style=plot.style_linebr, display=display.pane)
+plot((show2 and showSUM and showCall) ? sv(3, 0, 2) : na, "SUM CALL 組2", color=color.new(cSUM, 55), linewidth=lineW, style=plot.style_linebr, display=display.pane)
+plot((show2 and showSUM and showPut) ? sv(3, 1, 2) : na, "SUM PUT 組2", color=color.new(cSUM, 55), linewidth=lineW, style=plot.style_linebr, display=display.pane)

@@ -1,0 +1,40 @@
+# ===== 金鑰(不能上傳,會外流) =====
+config.json
+
+# ===== 資料庫(超大,不上傳) =====
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db
+
+# ===== 備份檔(含 .bak-日期 這種) =====
+*.bak*
+
+# ===== log =====
+*.log
+
+# ===== 執行時產生的資料 =====
+orderflow.json
+orderflow_history.jsonl
+levels_archive/
+levels_state.json
+levels_today.json
+levels_today.txt
+levels_history.txt
+
+# ===== 產出的報表與數據(非程式碼) =====
+*.csv
+gex_v2_all.html
+gex_v2_ex0dte.html
+v2_output.txt
+source_report.txt
+
+# ===== 產出的圖片/音檔/偵錯 =====
+error/
+web/tts/
+
+# ===== 系統雜物 =====
+__pycache__/
+*.pyc
+.DS_Store
+.fuse_hidden*

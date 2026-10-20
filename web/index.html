@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NQ GEX 監控</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230d1118'/%3E%3Cpath d='M6 22l6-8 5 4 9-11' fill='none' stroke='%23ffb454' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+
+  <header class="top">
+    <div class="brand">
+      <svg width="22" height="22" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#151b27"/><path d="M6 22l6-8 5 4 9-11" fill="none" stroke="#ffb454" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>NQ&nbsp;GEX</span>
+    </div>
+    <nav class="tabs" id="tabs">
+      <button class="on" data-tab="map">地圖</button>
+      <button data-tab="table">位置表</button>
+      <button data-tab="anly">分析</button>
+      <button data-tab="mentor">導師</button>
+    </nav>
+    <div class="grow"></div>
+    <label class="tzsel" title="圖上時間的時區">
+      <select id="tz">
+        <option value="Asia/Taipei">台北時間</option>
+        <option value="America/New_York">紐約時間</option>
+        <option value="UTC">UTC</option>
+      </select>
+    </label>
+    <button class="hbtn" id="bell" title="盤中特別情況(點開才會顯示)" aria-label="事件"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 0112 0v5l1.5 2h-15z"/><path d="M10 21a2 2 0 004 0"/></svg><b id="badge" hidden>0</b></button>
+    <button class="hbtn" id="fs" title="全螢幕" aria-label="全螢幕"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+    <div class="pill" id="live"><i></i><span>連線中…</span></div>
+  </header>
+
+  <!-- ============================== MAP ============================== -->
+  <section id="view-map" class="view">
+    <div class="toolbar" id="toolbar">
+      <div class="grp"><span class="lbl">範圍</span>
+        <div class="seg" data-key="range">
+          <button data-v="2">2H</button><button data-v="4">4H</button><button data-v="8">8H</button><button data-v="24">1D</button><button data-v="72">3D</button>
+        </div>
+        <select id="daysel" title="看某一天的整個美股時段"><option value="">指定日期…</option></select>
+      </div>
+      <div class="grp"><span class="lbl">牆 / Flip 來源</span>
+        <div class="chips" id="srcs">
+          <button data-v="NQ" class="c-NQ">NQ</button><button data-v="QQQ" class="c-QQQ">QQQ</button><button data-v="NDX" class="c-NDX">NDX</button><button data-v="WGT" class="c-WGT" title="把 NQ、QQQ、NDX 依重要性加權合成一組牆與 Flip">加權合計</button>
+        </div>
+      </div>
+      <div class="grp"><span class="lbl">權重</span>
+        <div class="seg" data-key="basis"><button data-v="oi">未平倉量</button><button data-v="vol">成交量</button></div>
+      </div>
+      <div class="grp"><span class="lbl">到期日</span>
+        <div class="seg" data-key="scope"><button data-v="all">全部</button><button data-v="ex0">排除0DTE</button><button data-v="zero">只看0DTE</button></div>
+      </div>
+      <div class="grp"><span class="lbl">熱圖類型</span>
+        <div class="seg" data-key="heatMode"><button data-v="strike" title="各履約價上的選擇權部位有多集中">履約價集中度</button><button data-v="profile" title="假設價格到了某個位置,整體 GEX 會變成多少(flip 就是這條曲線過零的地方)">GEX 壓力</button><button data-v="charm" title="隨時間流逝,各價位的 delta 每天會增減多少">Charm</button></div>
+      </div>
+      <div class="grp"><span class="lbl">熱圖來源</span>
+        <div class="seg" data-key="heatSrc"><button data-v="ALL">合計</button><button data-v="NQ">NQ</button><button data-v="QQQ">QQQ</button><button data-v="NDX">NDX</button></div>
+      </div>
+      <div class="grp"><span class="lbl">顯示</span>
+        <div class="seg" data-key="lens" id="lensSeg"><button data-v="abs"></button><button data-v="net"></button><button data-v="call"></button><button data-v="put"></button></div>
+      </div>
+      <div class="grp"><span class="lbl">K棒</span>
+        <div class="seg" data-key="tf"><button data-v="1">1分</button><button data-v="5">5分</button><button data-v="15">15分</button></div>
+      </div>
+      <div class="grp"><span class="lbl">價格分組</span>
+        <select id="bucket">
+          <option value="5">5 點</option><option value="10">10 點</option><option value="25">25 點</option><option value="50">50 點</option><option value="100">100 點</option>
+        </select>
+      </div>
+      <div class="grp tg"><span class="lbl">圖層</span>
+        <div class="chips" id="layers">
+          <button data-v="heat">熱圖</button><button data-v="lines">牆 / Flip</button><button data-v="band" title="每條牆與 Flip 旁邊的淡色支撐壓力帶">支撐壓力帶</button><button data-v="emband" title="今天 ±1σ 預期震幅:現價 ± 現價 × 近月(非0DTE)ATM 隱波 × √(1/365),上下兩條虛線 + 淡色通道">預期波動帶</button><button data-v="profile">側邊分布</button><button data-v="sub">副圖</button><button data-v="events">事件</button><button data-v="sqrib" title="主圖最上方一條細帶:綠 = 主動買盤動能,紅 = 主動賣盤動能(預設關閉)">動能條</button>
+        </div>
+      </div>
+      <div class="grow"></div>
+      <button class="ghost" id="reset" title="恢復縮放 (R)">重設視角</button>
+    </div>
+
+    <div class="body">
+      <div class="stage">
+        <div class="chartwrap">
+          <div id="chart"></div>
+          <div class="legend" id="legend"></div>
+          <div class="tip" id="tip" hidden></div>
+          <div class="busy" id="busy" hidden><span></span>計算牆與 flip…</div>
+          <div class="empty" id="empty" hidden></div>
+          <div class="evcard" id="evcard" hidden></div>
+          <div class="drawer" id="drawer" hidden>
+            <div class="dhead"><b>盤中特別情況</b><button class="x" id="drawerX" aria-label="關閉">×</button></div>
+            <div class="dfilter" id="evFilter"><button data-v="surge">大量成交</button><button data-v="touch">觸價</button><button data-v="cross">穿越 Flip</button></div>
+            <div class="dlist" id="dlist"></div>
+            <div class="dfoot">只會在你點開時顯示,不會自己跳出來。</div>
+          </div>
+        </div>
+        <div class="subwrap" id="subwrap">
+          <div class="subtabs" id="subtabs"><button data-v="net" class="on">Net GEX</button><button data-v="sq" title="Bookmap 訂單流:累積 Delta 與每分鐘主動買賣淨量">訂單流動能</button></div>
+          <div class="subtitle" id="subtitle">Net GEX</div>
+          <div id="subchart"></div>
+        </div>
+        <div class="replay" id="replay">
+          <button class="rbtn" id="rToggle" title="進入回放:用時間軸看每個時間點的熱圖與關卡">回放</button>
+          <button class="rbtn icon" id="rPlay" disabled aria-label="播放">
+            <svg width="14" height="14" viewBox="0 0 14 14"><path d="M3 2l9 5-9 5z" fill="currentColor"/></svg>
+          </button>
+          <input type="range" id="rSlider" min="0" max="0" value="0" disabled>
+          <span class="rtime" id="rTime">—</span>
+          <select id="rSpeed" title="播放速度"><option value="1">1×</option><option value="2">2×</option><option value="5">5×</option><option value="10">10×</option></select>
+        </div>
+      </div>
+
+      <aside class="side">
+        <div class="card" id="cardPrice"></div>
+        <div class="card" id="cardRegime"></div>
+        <div class="card" id="cardLevels"></div>
+        <div class="card" id="cardBook"></div>
+        <div class="card" id="cardWgt">
+          <h3>加權合計<small>NQ + QQQ + NDX 合成一組牆 / Flip</small></h3>
+          <label class="row"><span>NQ 期貨選擇權</span><input type="range" id="wNQ" min="0" max="100" step="5"><b id="wlNQ" class="wl"></b></label>
+          <label class="row"><span>NDX 指數選擇權</span><input type="range" id="wNDX" min="0" max="100" step="5"><b id="wlNDX" class="wl"></b></label>
+          <label class="row"><span>QQQ 選擇權</span><input type="range" id="wQQQ" min="0" max="100" step="5"><b id="wlQQQ" class="wl"></b></label>
+          <label class="row chk"><input type="checkbox" id="wnorm"><span>先把三個來源縮到同樣規模<small>(否則金額最大的 NDX 會蓋過其他兩個)</small></span></label>
+          <div class="note">預設比例 NDX 45 / QQQ 35 / NQ 20 是依你的判斷設的(NDX 機構為主、QQQ 散戶指標、NQ 選擇權體量小),不是從資料驗證出來的,可以隨時拖動滑桿調整,設定會記住。要使用請在上方「牆 / Flip 來源」按「加權合計」。</div>
+        </div>
+        <div class="card" id="cardSettings">
+          <h3>顯示調整</h3>
+          <label class="row"><span>K棒配色</span><select id="candleStyle"><option value="mono">黑白</option><option value="rg">紅綠</option></select></label>
+          <label class="row"><span>熱圖濃度</span><input type="range" id="alpha" min="20" max="100" step="5"></label>
+          <label class="row"><span>對比拉開<small>(強調次要價位)</small></span><input type="range" id="compress" min="25" max="100" step="5"></label>
+          <label class="row"><span>壓力帶寬度<small>(牆上下各幾點)</small></span><input type="range" id="bandW" min="5" max="80" step="5"></label>
+          <label class="row"><span>壓力帶濃度</span><input type="range" id="bandA" min="10" max="90" step="5"></label>
+          <label class="row chk"><input type="checkbox" id="follow"><span>滑鼠移動時,側邊分布跟著游標</span></label>
+        </div>
+        <div class="card" id="cardColors">
+          <h3>熱圖顏色</h3>
+          <label class="row"><span>配色組合</span><select id="palPreset"></select></label>
+          <div class="pick"><label>集中度 低<input type="color" id="cLow"></label><label>中<input type="color" id="cMid"></label><label>高<input type="color" id="cHigh"></label></div>
+          <div class="pick"><label>正值 / Call<input type="color" id="cPos"></label><label>負值 / Put<input type="color" id="cNeg"></label></div>
+          <div class="cbar" id="palBar"></div>
+        </div>
+        <div class="card" id="cardChart">
+          <h3>圖表控制</h3>
+          <label class="row chk"><input type="checkbox" id="gridH"><span>水平格線</span></label>
+          <label class="row chk"><input type="checkbox" id="gridV"><span>垂直格線</span></label>
+          <label class="row"><span>十字線</span><select id="cross"><option value="normal">自由</option><option value="magnet">吸附 K 棒</option><option value="hidden">隱藏</option></select></label>
+          <label class="row"><span>價格軸</span><select id="pmode"><option value="0">一般</option><option value="1">對數</option><option value="2">百分比</option></select></label>
+          <label class="row chk"><input type="checkbox" id="auto"><span>價格軸自動縮放<small>(關閉後可上下拖曳、Alt+滾輪縮放價格)</small></span></label>
+          <label class="row chk"><input type="checkbox" id="pline"><span>現價線</span></label>
+          <label class="row chk"><input type="checkbox" id="llabels"><span>關卡文字標籤</span></label>
+          <label class="row chk"><input type="checkbox" id="stay"><span>滾輪縮放時固定最新 K 棒</span></label>
+          <label class="row"><span>關卡線粗細</span><select id="lw"><option value="1">細</option><option value="2">中</option><option value="3">粗</option></select></label>
+          <label class="row"><span>右側留白</span><input type="range" id="roff" min="0" max="40" step="1"></label>
+          <div class="btnrow"><button class="ghost" id="sideToggle">收起側欄</button><button class="ghost" id="reset2">重設視角</button></div>
+        </div>
+        <p class="foot">模型假設:Call 為正、Put 為負(慣例,非事實);成交量沒有買賣方向;QQQ / NDX 以同一時刻的價格比例換算成 NQ 點位。</p>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ============================== TABLE ============================== -->
+  <section id="view-table" class="view hidden">
+    <div class="tablepage">
+      <div class="panel">
+        <div class="phead"><h2>目前這一刻的關卡</h2><span class="muted" id="tNow"></span></div>
+        <div id="tMatrix"></div>
+      </div>
+      <div class="panel">
+        <div class="phead"><h2>每日首波關卡紀錄</h2>
+          <div class="ctrl">
+            <select id="hSrc"><option>NQ</option><option>QQQ</option><option>NDX</option><option>SUM</option></select>
+            <select id="hBasis"><option value="OI">未平倉量</option><option value="VOL">成交量</option></select>
+            <select id="hScope"><option value="ALL">全部到期日</option><option value="EX0">排除0DTE</option></select>
+          </div>
+        </div>
+        <div id="tHist"></div>
+      </div>
+      <div class="panel">
+        <div class="phead"><h2>最活躍履約價</h2>
+          <div class="ctrl">
+            <span class="muted" id="flowNow"></span>
+            <select id="flowSrc"><option>NQ</option><option>QQQ</option><option>NDX</option></select>
+            <select id="flowN"><option value="10">前 10</option><option value="20" selected>前 20</option><option value="40">前 40</option></select>
+          </div>
+        </div>
+        <div class="flowsub">「成交增量」是兩次快照之間成交量的差,代表該履約價這段時間的熱度(成交量沒有買賣方向,所以不是多空訊號)。點選任一列會跳到地圖並定位該價位。</div>
+        <div id="tFlow"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================== ANALYSIS ============================== -->
+  <section id="view-anly" class="view hidden">
+    <div class="anlybar">
+      <div class="grp"><span class="lbl">範圍</span>
+        <div class="seg" data-key="range"><button data-v="2">2H</button><button data-v="4">4H</button><button data-v="8">8H</button><button data-v="24">1D</button><button data-v="72">3D</button></div>
+      </div>
+      <div class="grp" id="anlyPcrBasisGrp"><span class="lbl">P/C 基準</span>
+        <div class="seg" data-key="anlyPcrBasis"><button data-v="vol">成交量</button><button data-v="oi">未平倉量</button></div>
+      </div>
+      <div class="grp" id="anlySkewSrcGrp" hidden><span class="lbl">偏斜來源</span>
+        <div class="chips" id="anlySkewSrc"><button data-v="NQ" class="c-NQ">NQ</button><button data-v="QQQ" class="c-QQQ">QQQ</button><button data-v="NDX" class="c-NDX">NDX</button></div>
+      </div>
+      <div class="grp" id="anlyDivBasisGrp" hidden><span class="lbl">權重</span>
+        <div class="seg" data-key="anlyDivBasis"><button data-v="oi">未平倉量</button><button data-v="vol">成交量</button></div>
+      </div>
+      <div class="grp" id="anlyDivScopeGrp" hidden><span class="lbl">到期日</span>
+        <div class="seg" data-key="anlyDivScope"><button data-v="all">全部</button><button data-v="ex0">排除0DTE</button><button data-v="zero">只看0DTE</button></div>
+      </div>
+      <div class="grow"></div>
+      <div class="anlytabs" id="anlyTabs">
+        <button data-v="pcr">Put/Call 比</button>
+        <button data-v="skew">IV 偏斜</button>
+        <button data-v="div">三來源分歧</button>
+      </div>
+    </div>
+    <div class="anlybody">
+      <div class="anlyhead">
+        <h2 id="anlyTitle">Put/Call 比</h2>
+        <p id="anlySub"></p>
+      </div>
+      <div class="anlycharts">
+        <div class="anlychart" id="pcrChart"></div>
+        <div class="anlychart" id="skewChart" hidden></div>
+        <div id="divCol" hidden>
+          <div class="anlychart" id="divChart"></div>
+          <div class="anlychart anlychart-sm" id="divSpreadChart"></div>
+        </div>
+      </div>
+      <div class="anlynote" id="anlyNote"></div>
+    </div>
+  </section>
+
+  <!-- ============================== MENTOR ============================== -->
+  <section id="view-mentor" class="view hidden">
+    <div class="mentorbar">
+      <div class="grp"><span class="lbl">導師把 NQ / QQQ / NDX 三市場加權後,給出一段分析與單一方向結論</span></div>
+      <div class="grow"></div>
+      <button class="ghost" id="mentorRefresh" title="立刻用最新快照重新分析一次">立即更新</button>
+    </div>
+    <div class="mentorbody">
+      <div class="mentorcard" id="mentorCard">
+        <div class="mhead">
+          <div class="mdir" id="mDir"><span class="arr">—</span><b>等待資料</b><em></em></div>
+          <div class="mgauge">
+            <div class="mgaugeTrack" id="mGaugeTrack"><span id="mGaugeMark"></span></div>
+            <div class="mgaugeLbl"><span>偏空</span><span>0</span><span>偏多</span></div>
+          </div>
+          <div class="mconf">
+            <svg viewBox="0 0 72 72"><circle class="bg" cx="36" cy="36" r="30"/><circle class="fg" id="mConfArc" cx="36" cy="36" r="30"/></svg>
+            <span class="mconfNum" id="mConf">—</span>
+            <span class="mconfLbl">信心度</span>
+          </div>
+        </div>
+        <p class="mmeta" id="mMeta"></p>
+        <div class="mverify" id="mVerify" hidden></div>
+        <div class="mnarr" id="mNarrative"></div>
+        <div class="msrcs" id="mSrcs"></div>
+        <div class="msec"><h4>交易者視角<small>NQ 期貨交易者 · 0DTE 結構反推,非真實 DOM</small></h4><div id="mTrader"></div></div>
+        <div class="msec"><h4>參與者結構<small>NQ / QQQ / NDX · 0DTE · 價內 / 價外 / 深價外 · 結構推測,非實際大單</small></h4><div id="mParts"></div></div>
+        <div class="msec"><h4>做市商對沖<small>0DTE</small></h4><p class="mdeal" id="mDealer"></p></div>
+        <div class="msec"><h4>未來五分鐘</h4><p class="mshort" id="mShort"></p></div>
+        <div class="msec"><h4>關鍵價位</h4><div class="mkeys" id="mKeys"></div></div>
+        <div class="msec"><h4>細部訊號<small>NQ 來源</small></h4><div class="msigs" id="mSigs"></div></div>
+        <p class="mdisclaimer" id="mDisclaimer"></p>
+        <div class="msec" style="border-top:1px solid var(--line);margin-top:12px;padding-top:12px">
+          <h4>問導師<small>打字發問 · 帶上最新 GEX / 0DTE / orderflow 一起回答</small></h4>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <input id="askInput" type="text" placeholder="例如:現在適合做多嗎?停損放哪?" style="flex:1;min-width:0;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px;color:var(--text);font-size:13px">
+            <button class="ghost" id="askSend">送出</button>
+          </div>
+          <div style="margin-top:10px">
+            <button class="ghost" id="askPlay" hidden>唸出來</button>
+          </div>
+          <div id="askAnswer" style="margin-top:10px;white-space:pre-wrap;color:var(--text);line-height:1.65;font-size:13px"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+<div class="toast" id="toast" hidden></div>
+<script src="lwc.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
