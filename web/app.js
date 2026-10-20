@@ -526,11 +526,13 @@ async function loadAll(fit) {
     if (token !== D.token) return;
     D.kind = bars.kind;
     if (bars.kind === 'candles') {
-      D.bars = bars.data.map(([t, o, h, l, c, v]) => ({ time: t, open: o, high: h, low: l, close: c, vol: v || 0 }));
+      D.bars = bars.data.filter((r) => r[1] != null && r[2] != null && r[3] != null && r[4] != null)
+        .map(([t, o, h, l, c, v]) => ({ time: t, open: o, high: h, low: l, close: c, vol: v || 0 }));
       tickLine.setData([]);
       applyCandleStyle();
     } else {
-      D.bars = bars.data.map(([t, s]) => ({ time: t, open: s, high: s, low: s, close: s }));
+      D.bars = bars.data.filter((r) => r[1] != null)
+        .map(([t, s]) => ({ time: t, open: s, high: s, low: s, close: s }));
       tickLine.setData(D.bars.map((b) => ({ time: b.time, value: b.close })));
       const none = 'rgba(0,0,0,0)';
       candle.applyOptions({ upColor: none, downColor: none, borderUpColor: none, borderDownColor: none, wickUpColor: none, wickDownColor: none });
@@ -594,7 +596,7 @@ function applyNet() {
     for (let i = 0; i < D.barT.length; i++) {
       const t = D.barT[i];
       while (k + 1 < arr.length && arr[k + 1][0] <= t) k++;
-      if (k >= 0 && t - arr[k][0] < 1200) pts.push({ time: t, value: arr[k][1] }); else pts.push({ time: t });
+      if (k >= 0 && t - arr[k][0] < 1200 && arr[k][1] != null) pts.push({ time: t, value: arr[k][1] }); else pts.push({ time: t });
     }
     return pts;
   };
@@ -995,6 +997,7 @@ async function pollBars() {
   let added = false;
   for (const [t, o, h, l, c] of r.data) {
     if (t < lastT) continue;
+    if (o == null || h == null || l == null || c == null) continue;
     candle.update({ time: t, open: o, high: h, low: l, close: c });
     if (t > D.barT[D.barT.length - 1]) { D.barT.push(t); D.bars.push({ time: t, open: o, high: h, low: l, close: c }); added = true; }
     else D.bars[D.bars.length - 1] = { time: t, open: o, high: h, low: l, close: c };

@@ -630,7 +630,8 @@ def api_bars(con, q):
     lo, hi, tf = int(q["from"]), int(q["to"]), max(1, int(q.get("tf", 1)))
     rows = []
     if has_table(con, "bars"):
-        rows = con.execute("SELECT t,o,h,l,c,v FROM bars WHERE t >= ? AND t <= ? ORDER BY t", (lo - tf * 60, hi)).fetchall()
+        rows = [r for r in con.execute("SELECT t,o,h,l,c,v FROM bars WHERE t >= ? AND t <= ? ORDER BY t", (lo - tf * 60, hi)).fetchall()
+                if r[1] is not None and r[2] is not None and r[3] is not None and r[4] is not None]
     if rows:
         df = pd.DataFrame(rows, columns=["t", "o", "h", "l", "c", "v"])
         if tf > 1:
