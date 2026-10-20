@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
 import datetime as dt
 import hashlib
 import json
@@ -2204,7 +2205,29 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _authed(self) -> bool:
+        """Basic Auth 檢查:config.json 有設定 auth_user / auth_pass 時才擋,沒設定就放行(熱讀取,免重開)。"""
+        cfg = load_config()
+        user = (cfg.get("auth_user") or "").strip()
+        pw = (cfg.get("auth_pass") or "")
+        if not user or not pw:
+            return True
+        ah = self.headers.get("Authorization", "")
+        if not ah.startswith("Basic "):
+            return False
+        try:
+            got = base64.b64decode(ah[6:]).decode("utf-8")
+        except Exception:
+            return False
+        return got == f"{user}:{pw}"
+
     def do_GET(self):
+        if not self._authed():
+            self.send_response(401)
+            self.send_header("WWW-Authenticate", 'Basic realm="GEX"')
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         u = urlparse(self.path)
         if u.path.startswith("/api/"):
             name = u.path[5:]
