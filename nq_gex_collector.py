@@ -370,8 +370,36 @@ def pull(ib: IB, items: list[dict], settle: float, oi_cache: dict, want_oi: bool
     return rows, incomplete
 
 
+def quick_nq_snapshot(ib: IB, con: sqlite3.Connection, state: dict):
+    """美股開盤時 QQQ/NDX 要先重建上千檔合約清單 + 重拉 OI,整輪 20~30 分鐘。在那之前先存一筆
+    「只有 NQ」的快照,讓熱圖開盤那一段不要整個空白(盤前半夜本來就都是 NQ-only,前端會自動
+    carry-forward 昨天的 QQQ/NDX)。任何錯誤都靜默跳過,絕不影響主循環。"""
+    try:
+        u = state["uni"].get("NQ")
+        if u is None or u["date"] != dt.datetime.now(NY).date():
+            return
+        spot = price_of(u["spot_t"])
+        if not spot:
+            return
+        items = u["items"]
+        rows, _inc = pull(ib, items, FLOW_SETTLE_SECS, state.setdefault("oi_cache", {}), want_oi=False)
+        if not rows:
+            return
+        rows = [dict(r, stale=0) for r in rows]
+        now = dt.datetime.now(NY)
+        exp_by_key = {it["c"].conId: it["exp_dt"] for it in items}
+        for r in rows:
+            r["T"] = max((exp_by_key[r["conId"]] - now).total_seconds(), 3600) / (365 * 24 * 3600)
+        df, summary, _per_src = compute_snapshot(rows, {"NQ": spot}, spot)
+        ts = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+        save_snapshot(con, ts, df, summary)
+        print(f"[early NQ snapshot] {summary['n_contracts']} contracts saved at {ts}")
+    except Exception as e:
+        print(f"[early NQ snapshot] skipped: {e}")
+
+
 # ----------------------------- one cycle -----------------------------
-def run_cycle(ib: IB, state: dict):
+def run_cycle(ib: IB, state: dict, con: sqlite3.Connection | None = None):
     """Pull every active source and compute the snapshot. Returns (df, summary, per_src, info) or None."""
     now = dt.datetime.now(NY)
     open_us = us_options_open(now)
@@ -392,6 +420,11 @@ def run_cycle(ib: IB, state: dict):
                 if s == "NQ":
                     raise
                 active.remove(s)
+        # 開盤空窗防護:NQ 已就緒、QQQ/NDX 今天還沒建合約清單時,先存一筆「只有 NQ」的快照,
+        # 這樣 QQQ/NDX 重建 + 重拉 OI 的那 20~30 分鐘,熱圖不會整個空白。
+        if s == "NQ" and con is not None and open_us and len(active) > 1:
+            if any(state["uni"].get(x) is None or state["uni"].get(x)["date"] != now.date() for x in ("QQQ", "NDX")):
+                quick_nq_snapshot(ib, con, state)
 
     spots = {s: price_of(state["uni"][s]["spot_t"]) for s in active}   # all spots read at the same instant
     for s in [s for s in active if not spots[s]]:
@@ -438,7 +471,7 @@ def run_cycle(ib: IB, state: dict):
 def one_cycle(ib: IB, con: sqlite3.Connection, state: dict, quiet: QuietFilter | None = None):
     t0 = time.time()
     quiet and quiet.counts.clear()
-    res = run_cycle(ib, state)
+    res = run_cycle(ib, state, con)
     if res is None:
         print("No usable quotes this cycle.")
         return None
