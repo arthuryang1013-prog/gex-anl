@@ -790,7 +790,7 @@ function renderThesis() {
     $('#mSrcs').innerHTML = ''; $('#mParts').innerHTML = '';
     $('#mDealer').textContent = ''; $('#mShort').innerHTML = '';
     $('#mKeys').innerHTML = ''; $('#mSigs').innerHTML = ''; $('#mDisclaimer').textContent = '';
-    $('#mPlan').innerHTML = ''; $('#mSnapshot').innerHTML = '';
+    $('#mGauge').innerHTML = '';
     $('#mVerify').hidden = true; $('#mVerify').innerHTML = '';
     $('#mTrader').innerHTML = '';
     return;
@@ -913,7 +913,7 @@ function renderThesis() {
   $('#mKeys').innerHTML = `<div class="mladder">` + lvls.map(([name, v, cls]) =>
     `<div class="mladderRow ${cls}" ${cls === 'spot' ? '' : `data-strike="${v}"`}><span>${name}</span><b>${fP(v)}</b></div>`).join('') + `</div>`;
   $$('#mKeys .mladderRow[data-strike]').forEach((k) => { k.onclick = () => jumpToStrike(+k.dataset.strike); });
-  renderPlan(T); renderSnapshot(T);
+  renderGauge(T);
 
   const sigHtml = (T.signals || []).map((s) => {
     const sUp = s.s >= 0, w = Math.round(Math.min(100, Math.abs(s.s) * 100));
@@ -937,66 +937,29 @@ function renderThesis() {
   }
   $('#mSigs').innerHTML = sigHtml + ofHtml;
 }
-function renderPlan(T) {
-  const P = T.plan || {};
-  const box = $('#mPlan');
-  if (!P.long || !P.short) { box.innerHTML = '<span class="dim">進出場參考:關鍵價位不足,無法推算</span>'; return; }
-  const card = (side, o, cls) => `<div class="mplanCard ${cls}">
-    <div class="mplanHead">${side}</div>
-    <div class="mplanRow"><span>進場</span><b>${fP(o.entry)}</b></div>
-    <div class="mplanRow"><span>停損</span><b>${fP(o.sl)}</b></div>
-    <div class="mplanRow"><span>停利</span><b>${fP(o.tp)}</b></div>
-  </div>`;
-  box.innerHTML = card('做多', P.long, 'up') + card('做空', P.short, 'dn');
-}
-function renderSnapshot(T) {
-  const box = $('#mSnapshot');
-  const col = D.cols.length ? D.cols[D.cols.length - 1] : null;
-  if (!col || !col.bins.length) { box.innerHTML = '<span class="dim">熱圖資料還沒載入</span>'; return; }
-  const P = T.plan || {};
-  const W = box.clientWidth || 660, H = 150;
-  const cv = box.querySelector('canvas') || document.createElement('canvas');
-  if (!box.querySelector('canvas')) { box.innerHTML = ''; box.appendChild(cv); }
-  cv.width = W; cv.height = H;
-  const ctx = cv.getContext('2d');
-  let lo = P.support, hi = P.resist;
-  if (lo == null || hi == null || hi <= lo) {
-    const c = P.spot || D.last;
-    const half = (col.bins.length > 1) ? (col.bins[col.bins.length - 1] - col.bins[0]) / 2 : 100;
-    lo = (c != null ? c : col.bins[0] + half) - half; hi = (c != null ? c : col.bins[0] + half) + half;
-  }
-  const pad = (hi - lo) * 0.15; lo -= pad; hi += pad;
-  const yOf = (p) => H - ((p - lo) / (hi - lo)) * H;
-  const bucket = D.bucket || S.bucket;
-  const lens = S.lens, vmax = (D.vmax && D.vmax[lens]) || 1, gamma = S.compress / 100;
-  const stripW = 64;
-  for (let j = 0; j < col.bins.length; j++) {
-    const b = col.bins[j]; if (b + bucket / 2 < lo || b - bucket / 2 > hi) continue;
-    const v = lensValue(col, j, lens);
-    const t = Math.min(1, Math.abs(v) / vmax) ** gamma;
-    const lut = lens === 'net' ? (v >= 0 ? LUT.netPos : LUT.netNeg) : LUT[lens];
-    const y0 = yOf(b + bucket / 2), y1 = yOf(b - bucket / 2);
-    ctx.fillStyle = lut[Math.min(255, Math.round(t * 255))];
-    ctx.fillRect(0, Math.min(y0, y1), stripW, Math.max(1, Math.abs(y1 - y0)));
-  }
-  ctx.strokeStyle = 'rgba(255,255,255,.08)'; ctx.lineWidth = 1;
-  ctx.strokeRect(0, 0, stripW, H);
-  const lvl = (p, color, label, dash) => {
-    if (p == null || p < lo || p > hi) return;
-    const y = yOf(p);
-    ctx.strokeStyle = color; ctx.setLineDash(dash || []); ctx.lineWidth = 1.4;
-    ctx.beginPath(); ctx.moveTo(stripW, y); ctx.lineTo(W, y); ctx.stroke(); ctx.setLineDash([]);
-    ctx.fillStyle = color; ctx.font = '11px ui-monospace,Menlo,monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
-    ctx.fillText(`${label} ${fP(p)}`, stripW + 6, y - 2);
-  };
-  const kl = T.key_levels || {};
-  lvl(kl.call, DN, '壓力');
-  lvl(kl.put, UP, '支撐');
-  lvl(kl.flip, '#e7ebf3', 'Flip');
-  lvl(kl.flip0, '#ffd166', '0DTE flip');
-  lvl(P.spot, '#9db4ff', '現價', [4, 3]);
-  if (P.long) { lvl(P.long.tp, UP, '多停利', [2, 2]); lvl(P.long.sl, DN, '多停損', [2, 2]); }
-  if (P.short) { lvl(P.short.sl, DN, '空停損', [2, 2]); lvl(P.short.tp, UP, '空停利', [2, 2]); }
+function renderGauge(T) {
+  const g = T.gauge || [];
+  const el = $('#mGauge');
+  if (!g.length) { el.innerHTML = '<span class="dim">儀表板資料還沒好</span>'; return; }
+  el.innerHTML = g.map((t) => {
+    const arr = t.dir === 'up' ? '↑' : t.dir === 'dn' ? '↓' : '—';
+    const vote = t.dir === 'up' ? '偏多' : t.dir === 'dn' ? '偏空' : '中性';
+    let bar = '';
+    if (t.score != null && t.dir !== 'flat') {
+      const w = Math.min(50, Math.abs(t.score) * 50);
+      const left = t.dir === 'dn' ? 50 - w : 50;
+      bar = `<div class="mtileBar"><i class="mid"></i><i class="fill ${t.dir}" style="left:${left}%;width:${w}%"></i></div>`;
+    } else {
+      bar = `<div class="mtileBar"><i class="mid"></i></div>`;
+    }
+    return `<div class="mtile ${t.dir}">
+      <div class="mtileName">${t.name}</div>
+      <div class="mtileVote">${arr} ${vote}</div>
+      <div class="mtileVal">${t.val || '—'}</div>
+      ${bar}
+      <div class="mtileNote">${t.note || ''}</div>
+    </div>`;
+  }).join('');
 }
 /* ---- 導師精簡重點版(浮在熱圖旁,可拖動、可關閉) ---- */
 function renderMmini() {

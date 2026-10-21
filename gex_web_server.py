@@ -1856,18 +1856,43 @@ def _short_lean(nq, spot):
                 note="極低信心,五分鐘屬雜訊等級,僅供參考、勿當下單依據")
 
 
-def _trade_plan(spot, nq):
-    """從關鍵價位推一組參考進出場(多+空)。這是依 0DTE 牆/日內帶的機械推算,不是導師個別判斷。"""
-    b0 = nq.get("band0") or {}
-    support = nq.get("put_wall0") or b0.get("dn") or nq.get("band_dn")
-    resist = nq.get("call_wall0") or b0.get("up") or nq.get("band_up")
-    def rnd(x):
-        return None if x is None else round(float(x), 1)
-    plan = dict(spot=rnd(spot), flip0=rnd(nq.get("flip0")), support=rnd(support), resist=rnd(resist))
-    if support is not None and resist is not None and resist > support:
-        plan["long"] = dict(entry=rnd(spot), sl=rnd(support), tp=rnd(resist))
-        plan["short"] = dict(entry=rnd(spot), sl=rnd(resist), tp=rnd(support))
-    return plan
+def _gauge_tiles(spot, score, per, flow, nq, trader, short):
+    """把導師頁各指標正規化成一組「多/空/中性」磁磚,給前端畫即時多空儀表板。"""
+    def tile(id_, name, raw, val, note=""):
+        if raw is None:
+            return dict(id=id_, name=name, dir="flat", score=None, val=val, note=note)
+        d = "up" if raw > 0.08 else "dn" if raw < -0.08 else "flat"
+        return dict(id=id_, name=name, dir=d, score=max(-1.0, min(1.0, raw)), val=val, note=note)
+    tiles = []
+    tiles.append(tile("gex", "GEX 加權方向", score / 100.0, f"{score:+d}", "三市場加權總結論"))
+    for s in ("NQ", "QQQ", "NDX"):
+        sc = per[s]["score"]
+        tiles.append(tile("gex_" + s, s + " GEX", sc / 100.0, f"{sc:+d}", per[s]["direction"]))
+    if flow.get("available"):
+        tiles.append(tile("flow", "訂單流", flow["raw"], f"{(flow['raw'] * 100):+.0f}",
+                          f"Delta/不平衡/大單/掃單 · 約 {int(flow['age_sec'])} 秒前"))
+    else:
+        tiles.append(tile("flow", "訂單流", None, "—", "未連線或過時,本項不計"))
+    flip0 = nq.get("flip0")
+    share0 = nq.get("share0")
+    if flip0 is not None:
+        above = spot > flip0
+        note = f"現價在 0DTE flip {_fnum(flip0)} {'上方' if above else '下方'}"
+        if share0 is not None:
+            note += f" · 0DTE 佔比 {share0}%"
+        tiles.append(tile("dte0", "0DTE gamma", 0.6 if above else -0.6, "正 gamma" if above else "負 gamma", note))
+    else:
+        tiles.append(tile("dte0", "0DTE gamma", None, "—", "flip 資料不足"))
+    pg = trader.get("pos_gamma")
+    tiles.append(tile("mm", "做市商 gamma", 0.6 if pg else -0.6, trader.get("gamma_sign") or "—", trader.get("regime") or ""))
+    tiles.append(tile("short", "未來 5 分鐘", (short.get("score") or 0) / 100.0, f"{short.get('score', 0):+d}", short.get("note") or ""))
+    pcr = nq.get("pcr_vol0")
+    if pcr is not None:
+        raw = max(-1.0, min(1.0, 1.0 - pcr))
+        tiles.append(tile("pcr", "Put/Call 比(0DTE)", raw, f"{pcr:.2f}", ">1 避險偏空 · <1 追價偏多"))
+    else:
+        tiles.append(tile("pcr", "Put/Call 比(0DTE)", None, "—", "資料不足"))
+    return tiles
 
 
 def _narrative(direction, score, confidence, strength, caveat, per, weights, short, spot, nq):
@@ -2073,7 +2098,7 @@ def api_thesis(con, q):
                 sources=dict((s, dict(direction=per[s]["direction"], score=per[s]["score"])) for s in per),
                 weights=dict((s, round(weights[s] * 100)) for s in weights),
                 narrative=narrative, participants=participants, dealer=dealer, short=short, verify=verify, trader=trader,
-                plan=_trade_plan(spot, nq),
+                gauge=_gauge_tiles(spot, score, per, flow, nq, trader, short),
                 signals=sorted(per["NQ"]["signals"], key=lambda x: -abs(x["s"] * x["weight"])),
                 orderflow=dict(available=flow["available"], stale=flow["stale"], connected=flow["connected"],
                                age_sec=flow["age_sec"], lag_sec=flow["lag_sec"], weight=int(round(flow_w * 100)),
