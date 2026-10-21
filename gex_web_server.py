@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import base64
+import collections
 import datetime as dt
 import hashlib
 import json
@@ -59,6 +60,7 @@ BAND = 0.05               # heat map covers price +/- 5 %
 
 STATUS = {"bars": "none", "bars_err": ""}
 _cache_lock = threading.Lock()
+_ERRORS = collections.deque(maxlen=100)   # (dict) 最近 100 筆伺服器錯誤,供前端「錯誤紀錄」面板顯示
 
 # orderflow + AI 設定檔與常數(DeepSeek key 填在 config.json,熱讀取,不用重開 server)
 CONFIG_PATH = os.path.join(HERE, "config.json")
@@ -986,6 +988,8 @@ def api_dte(con, q):
 
 
 def _clamp(x, a=-1.0, b=1.0):
+    if x is None:      # 空值 = 沒訊號,歸 0,不要讓它把整個導師分析炸掉
+        return 0.0
     return a if x < a else b if x > b else x
 
 
@@ -2098,7 +2102,7 @@ def api_speak(con, q):
     return dict(ok=True, audio=audio)
 
 
-ROUTES = dict(squeeze=api_squeeze, flowmom=api_flowmom, heatx=api_heat_x, book=api_book, events=api_events, history=api_history, days=api_days, heat=api_heat, net=api_net, levels=api_levels, status=api_status, bars=api_bars, dte=api_dte, net3=api_net3, band=api_band, band0=api_band0, pcr=api_pcr, skew=api_skew, flow=api_flow, thesis=api_thesis, ask=api_ask, speak=api_speak)
+ROUTES = dict(squeeze=api_squeeze, flowmom=api_flowmom, heatx=api_heat_x, book=api_book, events=api_events, history=api_history, days=api_days, heat=api_heat, net=api_net, levels=api_levels, status=api_status, bars=api_bars, dte=api_dte, net3=api_net3, band=api_band, band0=api_band0, pcr=api_pcr, skew=api_skew, flow=api_flow, thesis=api_thesis, ask=api_ask, speak=api_speak, errors=api_errors)
 
 
 # ----------------------------- IBKR 1-minute candles (optional, own process) -----------------------------
@@ -2185,15 +2189,24 @@ async def _bars_session(db_path: str):
 
 # ----------------------------- HTTP -----------------------------
 def _log_error(path, e):
-    """Print the full error and keep a copy in gex_web.log next to this file (so it can be sent back for diagnosis)."""
+    """Print the full error, keep a copy in gex_web.log, and remember it in memory so the page's
+    「錯誤紀錄」panel can show it without anyone having to SSH into the server."""
     import traceback
-    msg = f"[{dt.datetime.now().strftime('%m-%d %H:%M:%S')}] {path}\n{traceback.format_exc()}"
+    tb = traceback.format_exc()
+    now = dt.datetime.now()
+    msg = f"[{now.strftime('%m-%d %H:%M:%S')}] {path}\n{tb}"
     print(msg, flush=True)
+    _ERRORS.append(dict(t=int(now.timestamp()), path=path, error=f"{type(e).__name__}: {e}", trace=tb))
     try:
         with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "gex_web.log"), "a", encoding="utf-8") as f:
             f.write(msg + "\n")
     except Exception:
         pass
+
+
+def api_errors(con, q):
+    """最近幾筆伺服器錯誤(記憶體佇列),讓前端「錯誤紀錄」面板直接顯示,不用 SSH 看 log。"""
+    return dict(errors=list(_ERRORS), now=int(time.time()))
 
 
 class Handler(BaseHTTPRequestHandler):

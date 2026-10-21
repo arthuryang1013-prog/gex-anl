@@ -61,6 +61,43 @@ async function api(name, params = {}) {
   if (!r.ok || j.error) throw new Error(j.error || r.status);
   return j;
 }
+
+/* ------------------------------ error reporting ------------------------------ */
+const escHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const CLIENT_ERRORS = [];
+let DSRV_ERRORS = [];
+let errSeen = Math.floor(Date.now() / 1000);
+function recordClientError(where, msg) {
+  const text = String((msg && msg.message) || msg || '未知錯誤');
+  CLIENT_ERRORS.push({ t: Math.floor(Date.now() / 1000), path: where, error: text.slice(0, 400), client: true });
+  if (CLIENT_ERRORS.length > 50) CLIENT_ERRORS.shift();
+  updateErrBadge();
+}
+window.addEventListener('error', (e) => recordClientError('前端', e.message));
+window.addEventListener('unhandledrejection', (e) => recordClientError('前端(Promise)', e.reason));
+function allErrors() {
+  return [...DSRV_ERRORS.map((x) => ({ ...x, client: false })), ...CLIENT_ERRORS.map((x) => ({ ...x, client: true }))]
+    .sort((a, b) => b.t - a.t);
+}
+function updateErrBadge() {
+  const b = $('#errbadge'); if (!b) return;
+  const n = allErrors().filter((x) => x.t > errSeen).length;
+  b.hidden = n === 0; b.textContent = n > 99 ? '99+' : n;
+}
+function renderErrors() {
+  const box = $('#errlist'); if (!box) return;
+  const list = allErrors();
+  box.innerHTML = list.length ? list.map((x) =>
+    `<div class="errit"><div class="ett">${hm(x.t)} · ${x.client ? '前端' : '伺服器'} · <b>${escHtml(x.path)}</b></div><div class="emsg">${escHtml(x.error)}</div></div>`
+  ).join('') : '<div class="sub" style="padding:14px">目前沒有錯誤紀錄。出問題時會自動記在這裡。</div>';
+}
+async function loadErrors() {
+  try {
+    const r = await api('errors', {});
+    DSRV_ERRORS = (r.errors || []).slice().reverse();
+  } catch (e) { /* ignore: 錯誤端點本身失敗就不用再往上報 */ }
+  renderErrors(); updateErrBadge();
+}
 function lowerIdx(arr, t) {   // index of the last element <= t, or -1
   let lo = 0, hi = arr.length - 1, ans = -1;
   while (lo <= hi) { const m = (lo + hi) >> 1; if (arr[m] <= t) { ans = m; lo = m + 1; } else hi = m - 1; }
@@ -1650,6 +1687,13 @@ $('#bell').onclick = () => {
   if (!d.hidden) { renderDrawer(); const last = D.events.reduce((m, e) => Math.max(m, e.t), 0); S.evSeen = last; save(); updateBell(); }
 };
 $('#drawerX').onclick = () => { $('#drawer').hidden = true; };
+$('#errbtn').onclick = () => {
+  const d = $('#errdrawer');
+  d.hidden = !d.hidden;
+  if (!d.hidden) { loadErrors(); errSeen = Math.floor(Date.now() / 1000); updateErrBadge(); }
+};
+$('#errdrawerX').onclick = () => { $('#errdrawer').hidden = true; };
+$('#errClear').onclick = () => { CLIENT_ERRORS.length = 0; DSRV_ERRORS = []; renderErrors(); updateErrBadge(); };
 $('#evFilter').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; S.evTypes[b.dataset.v] = !S.evTypes[b.dataset.v]; save(); renderDrawer(); evPrim.redraw(); updateBell(); };
 
 /* ------------------------------ colours & chart controls ------------------------------ */
@@ -1715,5 +1759,7 @@ $('#chart').addEventListener('wheel', (e) => {
 syncUI(); wLabels(); fillPalUI(); applyChartPrefs(); setSidebar(!!S.nosb); anlyMeta(); updateLegend(); setPill('', '連線中…');
 poll();
 setInterval(poll, 3000);
+loadErrors();
+setInterval(loadErrors, 12000);
 window.__gex = { D, S, chart, candle, evPrim, focusEvent, hits: () => evHits };   // handy for debugging in the browser console
 })();
