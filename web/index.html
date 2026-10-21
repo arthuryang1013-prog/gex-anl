@@ -254,6 +254,17 @@
     </div>
     <div class="mentorbody">
       <div class="mentorcard" id="mentorCard">
+        <div class="msec" style="border-bottom:1px solid var(--line);margin-bottom:12px;padding-bottom:12px">
+          <h4>問導師<small>打字發問 · 帶上最新 GEX / 0DTE / orderflow 一起回答</small></h4>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <input id="askInput" type="text" placeholder="例如:現在適合做多嗎?停損放哪?" style="flex:1;min-width:0;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px;color:var(--text);font-size:13px">
+            <button class="ghost" id="askSend">送出</button>
+          </div>
+          <div style="margin-top:10px">
+            <button class="ghost" id="askPlay" hidden>唸出來</button>
+          </div>
+          <div id="askAnswer" style="margin-top:10px;white-space:pre-wrap;color:var(--text);line-height:1.65;font-size:13px"></div>
+        </div>
         <div class="mhead">
           <div class="mdir" id="mDir"><span class="arr">—</span><b>等待資料</b><em></em></div>
           <div class="mgauge">
@@ -280,17 +291,6 @@
         <div class="msec"><h4>關鍵價位</h4><div class="mkeys" id="mKeys"></div></div>
         <div class="msec"><h4>細部訊號<small>NQ 來源</small></h4><div class="msigs" id="mSigs"></div></div>
         <p class="mdisclaimer" id="mDisclaimer"></p>
-        <div class="msec" style="border-top:1px solid var(--line);margin-top:12px;padding-top:12px">
-          <h4>問導師<small>打字發問 · 帶上最新 GEX / 0DTE / orderflow 一起回答</small></h4>
-          <div style="display:flex;gap:8px;margin-top:8px">
-            <input id="askInput" type="text" placeholder="例如:現在適合做多嗎?停損放哪?" style="flex:1;min-width:0;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px;color:var(--text);font-size:13px">
-            <button class="ghost" id="askSend">送出</button>
-          </div>
-          <div style="margin-top:10px">
-            <button class="ghost" id="askPlay" hidden>唸出來</button>
-          </div>
-          <div id="askAnswer" style="margin-top:10px;white-space:pre-wrap;color:var(--text);line-height:1.65;font-size:13px"></div>
-        </div>
       </div>
     </div>
   </section>

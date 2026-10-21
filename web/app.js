@@ -942,22 +942,21 @@ function renderGauge(T) {
   const el = $('#mGauge');
   if (!g.length) { el.innerHTML = '<span class="dim">儀表板資料還沒好</span>'; return; }
   el.innerHTML = g.map((t) => {
-    const arr = t.dir === 'up' ? '↑' : t.dir === 'dn' ? '↓' : '—';
-    const vote = t.dir === 'up' ? '偏多' : t.dir === 'dn' ? '偏空' : '中性';
-    let bar = '';
-    if (t.score != null && t.dir !== 'flat') {
-      const w = Math.min(50, Math.abs(t.score) * 50);
-      const left = t.dir === 'dn' ? 50 - w : 50;
-      bar = `<div class="mtileBar"><i class="mid"></i><i class="fill ${t.dir}" style="left:${left}%;width:${w}%"></i></div>`;
+    const cls = t.dir === 'up' ? 'up' : t.dir === 'dn' ? 'dn' : 'flat';
+    const mag = t.score == null ? null : Math.max(0, Math.min(1, Math.abs(t.score)));
+    let fill = '';
+    if (mag == null || mag < 0.08) {
+      fill = '<i class="gfill flat"></i>';
     } else {
-      bar = `<div class="mtileBar"><i class="mid"></i></div>`;
+      const h = (mag * 50).toFixed(1);
+      fill = t.dir === 'up'
+        ? `<i class="gfill up" style="height:${h}%"></i>`
+        : `<i class="gfill dn" style="height:${h}%"></i>`;
     }
-    return `<div class="mtile ${t.dir}">
-      <div class="mtileName">${t.name}</div>
-      <div class="mtileVote">${arr} ${vote}</div>
-      <div class="mtileVal">${t.val || '—'}</div>
-      ${bar}
-      <div class="mtileNote">${t.note || ''}</div>
+    return `<div class="gcol" title="${t.note || ''}">
+      <div class="gval ${cls}">${t.val || '—'}</div>
+      <div class="gbar">${fill}</div>
+      <div class="gname">${t.name}</div>
     </div>`;
   }).join('');
 }

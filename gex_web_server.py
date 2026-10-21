@@ -57,6 +57,7 @@ BARS_HISTORY = "4 D"
 MAX_COLS = 400            # heat-map columns sent to the page (snapshots are thinned evenly above this)
 MAX_LEVEL_FRAMES = 120    # snapshots for which wall / flip lines are computed (thinned evenly above this)
 BAND = 0.05               # heat map covers price +/- 5 %
+MIN_RANGE_PTS = 40.0      # 導師分析最低參考波動範圍:預期波動帶半寬不足 20 點就補到 ±20(共 40 點)
 
 STATUS = {"bars": "none", "bars_err": ""}
 _cache_lock = threading.Lock()
@@ -1019,6 +1020,15 @@ def _fnum(x):
     return str(int(round(x))) if abs(x - round(x)) < 1e-6 else f"{x:.1f}"
 
 
+def _floor_band(spot, up, dn):
+    """把預期波動帶撐到至少 MIN_RANGE_PTS(40 點)寬:總寬不足 40 點就改成 spot ± 20。"""
+    if spot is None or up is None or dn is None or up <= dn:
+        return up, dn
+    if (up - dn) < MIN_RANGE_PTS:
+        return spot + MIN_RANGE_PTS / 2.0, spot - MIN_RANGE_PTS / 2.0
+    return up, dn
+
+
 def _dte0_band(con, latest, src, spot):
     """0DTE 日內預期區間:spot ± spot × ATM_IV(0DTE) × √(T),T = 0DTE 到期(4pm ET)前的年化時間。
     隨收盤逼近自動收窄。回傳 dict(up, dn, iv, em, hours) 或 None。"""
@@ -1183,6 +1193,7 @@ def _thesis_src(con, src, lo, t, latest, spot, snaps):
     bnd = (api_band(con, {"from": lo, "to": t, "src": src, "maxcols": 60}).get("series")) or []
     if bnd:
         band_up, band_dn, atm_iv, dte = bnd[-1][2], bnd[-1][3], bnd[-1][4], bnd[-1][5]
+        band_up, band_dn = _floor_band(spot, band_up, band_dn)
 
     call_dv = put_dv = 0
     for r in api_flow(con, {"src": src, "n": 15}).get("rows") or []:
