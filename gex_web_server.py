@@ -71,6 +71,8 @@ DEFAULT_ORDERFLOW_MAX_LAG = 30.0   # Bookmap 事件延遲超過幾秒就標記�
 FLOW_WEIGHT = 0.30                 # 有 orderflow 時它在總結論的權重;GEX 三市場佔 1 - FLOW_WEIGHT
 TTS_VOICE_DEFAULT = "zh-TW-YunJheNeural"   # 導師聲音(男生·允哲);可在 config.json 用 tts_voice 改
 TTS_DIRNAME = "tts"                        # 語音 mp3 快取放 web 資料夾底下的子資料夾
+CACHE_KEEP_SECS = 3 * 86400                # web_cache.sqlite 快取保留 3 天,定期清掉避免無限長大
+TTS_KEEP_SECS = 3 * 86400                  # 導師語音 mp3 保留 3 天
 
 
 def load_config() -> dict:
@@ -441,7 +443,24 @@ def _cache_con():
         c.execute("DELETE FROM hx")
         c.execute("INSERT OR REPLACE INTO meta VALUES ('ver','cf1')")
         c.commit()
+    _prune_cache(c)
     return c
+
+
+def _prune_cache(c):
+    """每天清一次超過 CACHE_KEEP_SECS 的舊快取,避免 web_cache.sqlite 無限長大;失敗就跳過(明天再試)。"""
+    try:
+        now = time.time()
+        last = c.execute("SELECT v FROM meta WHERE k='prune_ts'").fetchone()
+        if last and now - float(last[0]) < 86400:
+            return
+        cutoff = iso(now - CACHE_KEEP_SECS)
+        c.execute("DELETE FROM lv WHERE ts < ?", (cutoff,))
+        c.execute("DELETE FROM hx WHERE ts < ?", (cutoff,))
+        c.execute("INSERT OR REPLACE INTO meta VALUES ('prune_ts', ?)", (str(now),))
+        c.commit()
+    except Exception:
+        pass
 
 
 _cf_memo = {}
@@ -1698,8 +1717,34 @@ def _ai_narrative(cfg, direction, score, confidence, strength, caveat, per, weig
     return DC.summarize("\n".join(lines), cfg)
 
 
+_tts_prune_ts = 0.0
+
+
+def _prune_tts(now):
+    """每天清一次超過 TTS_KEEP_SECS 的舊語音 mp3,避免 web/tts 無限長大;失敗就跳過。"""
+    global _tts_prune_ts
+    if now - _tts_prune_ts < 86400:
+        return
+    _tts_prune_ts = now
+    try:
+        d = os.path.join(WEB_DIR, TTS_DIRNAME)
+        if not os.path.isdir(d):
+            return
+        cutoff = now - TTS_KEEP_SECS
+        for fn in os.listdir(d):
+            p = os.path.join(d, fn)
+            try:
+                if os.path.isfile(p) and os.path.getmtime(p) < cutoff:
+                    os.remove(p)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
 def _speak(text: str, voice: str):
     """用 edge-tts(微軟神經語音)把文字合成 mp3,回傳相對 URL(如 /tts/xxx.mp3);任何失敗回 None。"""
+    _prune_tts(time.time())
     try:
         import edge_tts
     except Exception:
@@ -2131,10 +2176,17 @@ def bars_process(db_path: str):
         _meta_set(db_path, "state", "off")
         _meta_set(db_path, "err", f"ib_async not available: {e}")
         return
-    con = connect(db_path)
-    con.execute("CREATE TABLE IF NOT EXISTS bars (t INTEGER PRIMARY KEY, o REAL, h REAL, l REAL, c REAL, v REAL)")
-    con.commit()
-    con.close()
+    while True:
+        try:
+            con = connect(db_path)
+            con.execute("CREATE TABLE IF NOT EXISTS bars (t INTEGER PRIMARY KEY, o REAL, h REAL, l REAL, c REAL, v REAL)")
+            con.commit()
+            con.close()
+            break
+        except Exception as e:
+            _meta_set(db_path, "state", "reconnecting")
+            _meta_set(db_path, "err", str(e)[:200])
+            time.sleep(10)
     while True:
         try:
             asyncio.run(_bars_session(db_path))
@@ -2272,8 +2324,13 @@ class Handler(BaseHTTPRequestHandler):
         ctype = mimetypes.guess_type(full)[0] or "application/octet-stream"
         if ctype.startswith("text/") or ctype in ("application/javascript", "application/json"):
             ctype += "; charset=utf-8"
-        with open(full, "rb") as f:
-            self._send(200, f.read(), ctype)
+        try:
+            with open(full, "rb") as f:
+                self._send(200, f.read(), ctype)
+        except (BrokenPipeError, ConnectionResetError):
+            return          # 瀏覽器在讀檔時取消連線:無害
+        except Exception as e:
+            _log_error(self.path, e)
 
 
 def main():

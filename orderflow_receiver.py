@@ -95,6 +95,8 @@ class H(BaseHTTPRequestHandler):
             data = json.loads(self.rfile.read(n).decode("utf-8"))
         except Exception as e:
             return self._send(400, {"ok": False, "error": f"bad json: {e}"})
+        if not isinstance(data, dict):
+            return self._send(400, {"ok": False, "error": "body must be a JSON object"})
         data["received_at"] = time.time()
         tmp = OUT + ".tmp"
         try:

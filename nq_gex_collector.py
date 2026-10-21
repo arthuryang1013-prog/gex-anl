@@ -254,14 +254,16 @@ class QuietFilter(logging.Filter):
 
 
 def connect(ib: IB) -> int:
-    for p in ([PORT_OVERRIDE] if PORT_OVERRIDE else PORTS_TO_TRY):
-        try:
-            ib.connect(HOST, p, clientId=CLIENT_ID, readonly=True, timeout=5)
-            print(f"Connected to IBKR on port {p}")
-            return p
-        except Exception:
-            ib.disconnect()
-    raise SystemExit(f"Could not connect on ports {PORTS_TO_TRY}. Is TWS / IB Gateway logged in with the API enabled?")
+    while True:
+        for p in ([PORT_OVERRIDE] if PORT_OVERRIDE else PORTS_TO_TRY):
+            try:
+                ib.connect(HOST, p, clientId=CLIENT_ID, readonly=True, timeout=5)
+                print(f"Connected to IBKR on port {p}")
+                return p
+            except Exception:
+                ib.disconnect()
+        print(f"Could not connect on ports {PORTS_TO_TRY}. Is TWS / IB Gateway logged in with the API enabled? Retrying in 15s ...")
+        time.sleep(15)
 
 
 def ok(x) -> bool:
