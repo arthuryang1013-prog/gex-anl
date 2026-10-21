@@ -1856,6 +1856,20 @@ def _short_lean(nq, spot):
                 note="極低信心,五分鐘屬雜訊等級,僅供參考、勿當下單依據")
 
 
+def _trade_plan(spot, nq):
+    """從關鍵價位推一組參考進出場(多+空)。這是依 0DTE 牆/日內帶的機械推算,不是導師個別判斷。"""
+    b0 = nq.get("band0") or {}
+    support = nq.get("put_wall0") or b0.get("dn") or nq.get("band_dn")
+    resist = nq.get("call_wall0") or b0.get("up") or nq.get("band_up")
+    def rnd(x):
+        return None if x is None else round(float(x), 1)
+    plan = dict(spot=rnd(spot), flip0=rnd(nq.get("flip0")), support=rnd(support), resist=rnd(resist))
+    if support is not None and resist is not None and resist > support:
+        plan["long"] = dict(entry=rnd(spot), sl=rnd(support), tp=rnd(resist))
+        plan["short"] = dict(entry=rnd(spot), sl=rnd(resist), tp=rnd(support))
+    return plan
+
+
 def _narrative(direction, score, confidence, strength, caveat, per, weights, short, spot, nq):
     """短時間總結:以 0DTE 的變化為主。參與者結構/策略足跡/做市商對沖的細節放到下方各區塊,不塞進總結。"""
     L = []
@@ -2059,6 +2073,7 @@ def api_thesis(con, q):
                 sources=dict((s, dict(direction=per[s]["direction"], score=per[s]["score"])) for s in per),
                 weights=dict((s, round(weights[s] * 100)) for s in weights),
                 narrative=narrative, participants=participants, dealer=dealer, short=short, verify=verify, trader=trader,
+                plan=_trade_plan(spot, nq),
                 signals=sorted(per["NQ"]["signals"], key=lambda x: -abs(x["s"] * x["weight"])),
                 orderflow=dict(available=flow["available"], stale=flow["stale"], connected=flow["connected"],
                                age_sec=flow["age_sec"], lag_sec=flow["lag_sec"], weight=int(round(flow_w * 100)),
@@ -2152,7 +2167,54 @@ def api_errors(con, q):
     return dict(errors=list(_ERRORS), now=int(time.time()))
 
 
-ROUTES = dict(squeeze=api_squeeze, flowmom=api_flowmom, heatx=api_heat_x, book=api_book, events=api_events, history=api_history, days=api_days, heat=api_heat, net=api_net, levels=api_levels, status=api_status, bars=api_bars, dte=api_dte, net3=api_net3, band=api_band, band0=api_band0, pcr=api_pcr, skew=api_skew, flow=api_flow, thesis=api_thesis, ask=api_ask, speak=api_speak, errors=api_errors)
+def api_flowmark(con, q):
+    """orderflow 大單+掃單事件(附價位):從 orderflow.json 的 trades([價,買量,賣量])推出,
+    讓前端標在熱圖對應價位,跟選擇權大單交叉比對。無資料回 ok=True + 空 events(不報錯)。"""
+    cfg = load_config()
+    out = dict(ok=False, spot=None, age_sec=None, events=[])
+    of = _load_orderflow(cfg)
+    if of is None or not of.get("available"):
+        return out
+    d = of["data"]
+    out["spot"] = d.get("spot")
+    out["age_sec"] = of.get("age_sec")
+    trades = [x for x in (d.get("trades") or []) if isinstance(x, (list, tuple)) and len(x) >= 3]
+    rows = []
+    for x in trades:
+        try:
+            p, bv, sv = float(x[0]), float(x[1]), float(x[2])
+        except (TypeError, ValueError):
+            continue
+        rows.append((p, bv, sv))
+    if not rows:
+        out["ok"] = True
+        return out
+    rows.sort(key=lambda r: -(r[1] + r[2]))
+    big = set(rows[:5])
+    events = []
+    seen = set()
+    for p, bv, sv in rows:
+        tot = bv + sv
+        one_sided = max(bv, sv) >= 2.5 * min(bv, sv) + 1e-9
+        if one_sided and tot >= 20:
+            kind, side = "sweep", ("buy" if bv > sv else "sell")
+        elif (p, bv, sv) in big and tot >= 25:
+            kind, side = "big", ("buy" if bv >= sv else "sell")
+        else:
+            continue
+        key = (round(p, 1), kind, side)
+        if key in seen:
+            continue
+        seen.add(key)
+        events.append(dict(p=round(p, 1), side=side, kind=kind, vol=int(round(tot))))
+        if len(events) >= 12:
+            break
+    out["ok"] = True
+    out["events"] = events
+    return out
+
+
+ROUTES = dict(squeeze=api_squeeze, flowmom=api_flowmom, heatx=api_heat_x, book=api_book, events=api_events, history=api_history, days=api_days, heat=api_heat, net=api_net, levels=api_levels, status=api_status, bars=api_bars, dte=api_dte, net3=api_net3, band=api_band, band0=api_band0, pcr=api_pcr, skew=api_skew, flow=api_flow, thesis=api_thesis, ask=api_ask, speak=api_speak, errors=api_errors, flowmark=api_flowmark)
 
 
 # ----------------------------- IBKR 1-minute candles (optional, own process) -----------------------------

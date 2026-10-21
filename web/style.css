@@ -348,3 +348,88 @@ button.mkey:hover{border-color:var(--blue);color:var(--text)}
 .msigBar i{display:block;height:100%;border-radius:2px}
 .msigText{font-size:12px;color:var(--muted);line-height:1.55}
 .mdisclaimer{margin:0;font-size:11.5px;color:var(--dim);border-top:1px solid var(--line);padding-top:10px}
+
+/* ---------- v3: UI 大改 ---------- */
+.tmore{display:contents}
+.tmoreBtn{white-space:nowrap}
+.settoggle{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:10px 14px;color:var(--muted);font-weight:600;text-align:left}
+.settoggle:hover{color:var(--text);border-color:var(--line2)}
+.settoggle .caret{color:var(--dim);font-size:10px}
+#setWrap{display:flex;flex-direction:column;gap:12px}
+#setWrap[hidden]{display:none}
+
+/* 導師精簡重點版(浮在熱圖旁) */
+.mmini{position:absolute;left:12px;top:120px;width:252px;z-index:4;border-radius:12px;background:rgba(17,22,32,.96);border:1px solid var(--line2);box-shadow:0 14px 40px rgba(0,0,0,.5);backdrop-filter:blur(6px)}
+.mminiHead{display:flex;align-items:center;justify-content:space-between;padding:8px 12px 0;cursor:move}
+.mminiHead b{font-size:12px;letter-spacing:.02em;color:var(--muted)}
+.mminiHead .x{background:none;border:0;color:var(--muted);font-size:18px;line-height:1;cursor:pointer}
+.mminiHead .x:hover{color:var(--text)}
+.mminiBody{display:flex;flex-direction:column;gap:6px;padding:8px 12px 12px}
+.mminiDir{font:700 13px/1 var(--sans)}
+.mminiDir.up{color:var(--up)}
+.mminiDir.dn{color:var(--dn)}
+.mminiNarr{font-size:12px;line-height:1.55;color:var(--text)}
+.mminiKeys{font:11px var(--mono);color:var(--muted);border-top:1px solid var(--line);padding-top:6px}
+
+/* 命中率長條 */
+.mhitbar{display:flex;height:6px;width:110px;border-radius:3px;overflow:hidden;background:#0b0f16;border:1px solid var(--line)}
+.mhitbar i{display:block;height:100%}
+.mhitbar i.h{background:var(--up)}
+.mhitbar i.m{background:var(--dn)}
+.mhitbar i.u{background:var(--amber)}
+
+/* 參與者堆疊長條 */
+.mpbarRow{display:grid;grid-template-columns:56px 1fr auto;gap:8px;align-items:center;padding:4px 0;font-size:12px;border-bottom:1px solid var(--line)}
+.mpbarRow:last-child{border-bottom:0}
+.mpbarLbl{color:var(--muted);font-family:var(--sans)}
+.mpbar{display:flex;height:8px;border-radius:4px;overflow:hidden;background:#0b0f16;border:1px solid var(--line)}
+.mpbar i{display:block;height:100%}
+.mpbarCall{background:var(--up)}
+.mpbarPut{background:var(--dn)}
+.mpbarNum{font:11px var(--mono);color:var(--dim);white-space:nowrap}
+
+/* 做市商 gamma 量表 */
+.mdealerGauge{display:flex;flex-direction:column;gap:7px;padding:11px 13px;background:var(--bg2);border:1px solid var(--line);border-radius:10px}
+.mdgTrack{position:relative;height:10px;border-radius:6px;background:linear-gradient(90deg,var(--dn),#33404f 50%,var(--up));opacity:.85}
+.mdgFlip{position:absolute;left:50%;top:-3px;bottom:-3px;width:1.5px;background:#e7ebf3;opacity:.8}
+.mdgSpot{position:absolute;top:50%;width:14px;height:14px;border-radius:50%;background:#fff;border:3px solid #0a0d13;transform:translate(-50%,-50%);box-shadow:0 0 0 1px var(--line2)}
+.mdgLbl{display:flex;justify-content:space-between;font-size:10.5px;color:var(--dim);letter-spacing:.02em}
+.mdgState{font-size:11.5px;color:var(--muted)}
+.mdealText{margin-top:9px}
+
+/* 未來五分鐘區間條 */
+.mshortRow{display:flex;align-items:baseline;gap:10px}
+.mshortTrack{position:relative;height:10px;border-radius:6px;background:linear-gradient(90deg,var(--dn),#33404f 50%,var(--up));opacity:.85;margin:2px 0 4px}
+.mshortTrack .mid{position:absolute;left:50%;top:-3px;bottom:-3px;width:1px;background:rgba(255,255,255,.35)}
+.mshortTrack .mark{position:absolute;top:50%;width:15px;height:15px;border-radius:50%;background:#fff;border:3px solid #0a0d13;transform:translate(-50%,-50%);box-shadow:0 0 0 1px var(--line2)}
+
+/* 關鍵價位價格階梯 */
+.mladder{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--panel)}
+.mladderRow{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 12px;border-bottom:1px solid var(--line);font-size:12px}
+.mladderRow:last-child{border-bottom:0}
+.mladderRow[data-strike]{cursor:pointer}
+.mladderRow[data-strike]:hover{background:rgba(255,255,255,.04)}
+.mladderRow span{color:var(--muted);font-size:11.5px}
+.mladderRow b{font:600 13px/1.3 var(--mono);color:var(--text)}
+.mladderRow.sup b{color:var(--up)}
+.mladderRow.res b{color:var(--dn)}
+.mladderRow.band b{color:var(--amber)}
+.mladderRow.band0 b,.mladderRow.dte0 b{color:#5eead4}
+.mladderRow.flip b{color:var(--text)}
+.mladderRow.spot{background:rgba(122,162,255,.1)}
+.mladderRow.spot span{color:var(--blue);font-weight:650}
+.mladderRow.spot b{color:var(--blue);font-size:14px}
+
+/* 進出場卡片 */
+.mplan{display:flex;gap:10px;flex-wrap:wrap}
+.mplanCard{flex:1;min-width:150px;display:flex;flex-direction:column;gap:3px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg2)}
+.mplanHead{font:700 13px/1 var(--sans);margin-bottom:4px}
+.mplanCard.up .mplanHead{color:var(--up)}
+.mplanCard.dn .mplanHead{color:var(--dn)}
+.mplanRow{display:flex;justify-content:space-between;gap:10px;font-size:12px}
+.mplanRow span{color:var(--muted)}
+.mplanRow b{font:600 13px/1.3 var(--mono);color:var(--text)}
+
+/* 迷你熱圖快照 */
+.msnap{margin-top:4px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#0b0f16}
+.msnap canvas{display:block;width:100%}

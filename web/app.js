@@ -18,11 +18,12 @@ const DEF = { hours: 8, day: null, tz: 'Asia/Taipei', srcs: ['NQ', 'QQQ', 'NDX']
   tf: 1, bucket: 25, heat: true, lines: true, profile: true, sub: true, alpha: 85, compress: 70, follow: true, candle: 'mono',
   heatMode: 'strike', heatSrc: 'ALL', band: true, bandW: 20, bandA: 45, wgt: { NQ: 20, QQQ: 35, NDX: 45 }, wver: 2, wnorm: true, events: true, evTypes: { surge: true, touch: true, cross: true }, evSeen: 0,
   pal: { name: '預設', low: '#3752cd', mid: '#1c96c3', high: '#ffbc48', pos: '#26c98b', neg: '#ff5c6c' },
-  gridH: false, gridV: false, cross: 'normal', pmode: 0, auto: true, pline: true, llabels: true, stay: false, lw: 1, roff: 8, nosb: false,
-  subMode: 'net', sqrib: false, emband: true, anly: 'pcr', anlyPcrBasis: 'vol', anlySkewSrc: 'NQ', anlyDivBasis: 'oi', anlyDivScope: 'all' };
+  gridH: false, gridV: false, cross: 'normal', pmode: 0, auto: true, pline: true, llabels: true, stay: false, lw: 3, roff: 8, nosb: false,
+  subMode: 'net', sqrib: false, emband: true, anly: 'pcr', anlyPcrBasis: 'vol', anlySkewSrc: 'NQ', anlyDivBasis: 'oi', anlyDivScope: 'all',
+  flmark: true, sets: false, mmini: true, lineCol: { NQ: '#7aa2ff', QQQ: '#39d98a', NDX: '#ffb454', WGT: '#ff7ad9' } };
 const S = { ...DEF };
 try { if (/[?&]reset\b/.test(location.search)) localStorage.removeItem('gexweb.v1'); } catch (e) { /* ignore */ }
-try { const o = JSON.parse(localStorage.getItem('gexweb.v1') || '{}'); Object.assign(S, o); S.pal = { ...DEF.pal, ...(o.pal || {}) }; S.evTypes = { ...DEF.evTypes, ...(o.evTypes || {}) }; S.wgt = { ...DEF.wgt, ...(o.wgt || {}) }; if ((o.wver || 0) < 2) { S.wgt = { ...DEF.wgt }; S.wver = 2; } if (S.subMode !== 'net' && S.subMode !== 'sq') S.subMode = 'net'; if (!['pcr', 'skew', 'div'].includes(S.anly)) S.anly = 'pcr'; if (!['vol', 'oi'].includes(S.anlyPcrBasis)) S.anlyPcrBasis = 'vol'; if (!['NQ', 'QQQ', 'NDX'].includes(S.anlySkewSrc)) S.anlySkewSrc = 'NQ'; if (!['oi', 'vol'].includes(S.anlyDivBasis)) S.anlyDivBasis = 'oi'; if (!['all', 'ex0', 'zero'].includes(S.anlyDivScope)) S.anlyDivScope = 'all'; } catch (e) { /* storage may be blocked */ }
+try { const o = JSON.parse(localStorage.getItem('gexweb.v1') || '{}'); Object.assign(S, o); S.pal = { ...DEF.pal, ...(o.pal || {}) }; S.evTypes = { ...DEF.evTypes, ...(o.evTypes || {}) }; S.wgt = { ...DEF.wgt, ...(o.wgt || {}) }; S.lineCol = { ...DEF.lineCol, ...(o.lineCol || {}) }; if ((o.wver || 0) < 2) { S.wgt = { ...DEF.wgt }; S.wver = 2; } if (S.subMode !== 'net' && S.subMode !== 'sq') S.subMode = 'net'; if (!['pcr', 'skew', 'div'].includes(S.anly)) S.anly = 'pcr'; if (!['vol', 'oi'].includes(S.anlyPcrBasis)) S.anlyPcrBasis = 'vol'; if (!['NQ', 'QQQ', 'NDX'].includes(S.anlySkewSrc)) S.anlySkewSrc = 'NQ'; if (!['oi', 'vol'].includes(S.anlyDivBasis)) S.anlyDivBasis = 'oi'; if (!['all', 'ex0', 'zero'].includes(S.anlyDivScope)) S.anlyDivScope = 'all'; } catch (e) { /* storage may be blocked */ }
 const save = () => { try { localStorage.setItem('gexweb.v1', JSON.stringify(S)); } catch (e) { /* ignore */ } };
 
 /* ------------------------------ state ------------------------------ */
@@ -491,7 +492,7 @@ candle.attachPrimitive(heatPrim);
 candle.attachPrimitive(bandPrim);
 candle.attachPrimitive(profPrim);
 candle.attachPrimitive(mentorPrim);
-function redraw() { heatPrim.redraw(); bandPrim.redraw(); profPrim.redraw(); embandPrim.redraw(); mentorPrim.redraw(); if (window.__sqr) window.__sqr.redraw(); }
+function redraw() { heatPrim.redraw(); bandPrim.redraw(); profPrim.redraw(); embandPrim.redraw(); mentorPrim.redraw(); if (window.__flm) window.__flm.redraw(); if (window.__sqr) window.__sqr.redraw(); }
 
 function cursorIdx() {
   if (R.on) return R.idx;
@@ -506,7 +507,7 @@ function rebuildLineSeries() {
   lineSeries = {};
   for (const src of S.srcs) for (const [kind, name] of KINDS) {
     lineSeries[`${src}-${kind}`] = chart.addSeries(LW.LineSeries, {
-      color: SRC_COL[src], lineWidth: lw(`${src}-${kind}`), lineStyle: kind === 'call' ? 0 : kind === 'put' ? 1 : 3,
+      color: (S.lineCol && S.lineCol[src]) || SRC_COL[src], lineWidth: lw(`${src}-${kind}`), lineStyle: kind === 'call' ? 0 : kind === 'put' ? 1 : 3,
       lineType: LW.LineType.WithSteps, title: S.llabels ? `${sn(src)} ${name}` : '', lastValueVisible: S.llabels, priceLineVisible: false,
       crosshairMarkerVisible: false, autoscaleInfoProvider: () => null, visible: S.lines,
     });
@@ -778,6 +779,7 @@ async function loadThesis() {
 }
 function renderThesis() {
   const T = D.thesis;
+  renderMmini();
   const dir = $('#mDir'), conf = $('#mConf'), arc = $('#mConfArc');
   if (!T || !T.ok) {
     dir.className = 'mdir'; dir.innerHTML = '<span class="arr">—</span><b>等待資料</b><em></em>';
@@ -788,6 +790,7 @@ function renderThesis() {
     $('#mSrcs').innerHTML = ''; $('#mParts').innerHTML = '';
     $('#mDealer').textContent = ''; $('#mShort').innerHTML = '';
     $('#mKeys').innerHTML = ''; $('#mSigs').innerHTML = ''; $('#mDisclaimer').textContent = '';
+    $('#mPlan').innerHTML = ''; $('#mSnapshot').innerHTML = '';
     $('#mVerify').hidden = true; $('#mVerify').innerHTML = '';
     $('#mTrader').innerHTML = '';
     return;
@@ -814,7 +817,10 @@ function renderThesis() {
     if (V.flip_cross) vh += `<span class="dim">${V.flip_cross}</span>`;
     vh += `</div>`;
     if (V.n != null) {
-      vh += `<div class="mvtrack"><b>戰績</b><span class="hit">命中 ${V.hit}</span><span class="miss">未中 ${V.miss}</span><span class="und">未分曉 ${V.undecided}</span><em class="dim">共 ${V.n} 筆</em></div>`;
+      const vtot = Math.max(1, (V.hit || 0) + (V.miss || 0) + (V.undecided || 0));
+      vh += `<div class="mvtrack"><b>戰績</b>
+        <div class="mhitbar"><i class="h" style="width:${((V.hit || 0) / vtot) * 100}%"></i><i class="m" style="width:${((V.miss || 0) / vtot) * 100}%"></i><i class="u" style="width:${((V.undecided || 0) / vtot) * 100}%"></i></div>
+        <span class="hit">命中 ${V.hit}</span><span class="miss">未中 ${V.miss}</span><span class="und">未分曉 ${V.undecided}</span><em class="dim">共 ${V.n} 筆</em></div>`;
     }
     $('#mVerify').innerHTML = vh;
     $('#mVerify').hidden = false;
@@ -861,32 +867,53 @@ function renderThesis() {
     const dn = mk.verdict === '偏恐慌/避險';
     const cls = up ? 'up' : (dn ? 'dn' : '');
     ph += `<div class="mpmarket"><div class="mpmhead"><span class="mpsrc">${mk.src}</span><span class="mpverdict ${cls}">${mk.verdict || '—'}</span></div>`;
-    ph += `<table class="mparts"><thead><tr><th>區段</th><th>Call 增量</th><th>Put 增量</th><th>Call 未平倉</th><th>Put 未平倉</th></tr></thead><tbody>`;
     (mk.buckets || []).forEach((b) => {
-      ph += `<tr><td>${b.label}</td><td>${b.call_dv}</td><td>${b.put_dv}</td><td>${b.call_oi}</td><td>${b.put_oi}</td></tr>`;
+      const cd = b.call_dv || 0, pd = b.put_dv || 0, tot = cd + pd || 1;
+      ph += `<div class="mpbarRow"><span class="mpbarLbl">${b.label}</span>
+        <div class="mpbar"><i class="mpbarCall" style="width:${(cd / tot) * 100}%"></i><i class="mpbarPut" style="width:${(pd / tot) * 100}%"></i></div>
+        <span class="mpbarNum">C ${cd} / P ${pd} · 未平倉 C${b.call_oi}/P${b.put_oi}</span></div>`;
     });
-    ph += `</tbody></table>`;
     if (mk.notes && mk.notes.length) ph += `<ul class="mpnotes">${mk.notes.map((n) => `<li>${n}</li>`).join('')}</ul>`;
     ph += `</div>`;
   });
   $('#mParts').innerHTML = ph || '<span class="dim">資料不足</span>';
 
-  $('#mDealer').textContent = T.dealer || '';
+  const klD = T.key_levels || {};
+  const TRD = T.trader || {};
+  let dh = '';
+  if (klD.flip0 != null && T.spot != null) {
+    const above = T.spot > klD.flip0;
+    dh = `<div class="mdealerGauge ${above ? 'up' : 'dn'}">
+      <div class="mdgTrack"><i class="mdgFlip"></i><i class="mdgSpot" style="left:${above ? '64%' : '36%'}"></i></div>
+      <div class="mdgLbl"><span>負 gamma · 追漲殺跌</span><span>0DTE flip ${fP(klD.flip0)}</span><span>正 gamma · 買低賣高</span></div>
+      <div class="mdgState">現價在 flip0 ${above ? '上方' : '下方'} → 做市商 ${TRD.gamma_sign || (above ? '正 gamma' : '負 gamma')}</div>
+    </div>`;
+  }
+  $('#mDealer').innerHTML = dh + (T.dealer ? `<div class="mdealText">${T.dealer}</div>` : '');
 
   const SH = T.short || {};
   const shUp = SH.direction === '偏多';
-  $('#mShort').innerHTML = `<b class="${shUp ? 'up' : 'dn'}">${shUp ? '↑' : '↓'} ${SH.direction}</b><span>分數 ${SH.score > 0 ? '+' : ''}${SH.score}</span><em class="dim">${SH.note}</em>`;
+  const shPct = Math.max(2, Math.min(98, 50 + (SH.score || 0) / 2));
+  $('#mShort').innerHTML = `<div class="mshortRow"><b class="${shUp ? 'up' : 'dn'}">${shUp ? '↑' : '↓'} ${SH.direction}</b><span>分數 ${SH.score > 0 ? '+' : ''}${SH.score}</span></div>
+    <div class="mshortTrack"><i class="mid"></i><i class="mark ${shUp ? 'up' : 'dn'}" style="left:${shPct}%"></i></div>
+    <em class="dim">${SH.note}</em>`;
 
   const kl = T.key_levels || {};
-  let keys = '';
-  if (kl.flip0 != null) keys += `<button class="mkey dte0" data-strike="${kl.flip0}"><span>0DTE flip</span><b>${fP(kl.flip0)}</b></button>`;
-  if (kl.flip != null) keys += `<button class="mkey" data-strike="${kl.flip}"><span>Flip</span><b>${fP(kl.flip)}</b></button>`;
-  if (kl.put != null) keys += `<button class="mkey sup" data-strike="${kl.put}"><span>支撐</span><b>${fP(kl.put)}</b></button>`;
-  if (kl.call != null) keys += `<button class="mkey res" data-strike="${kl.call}"><span>壓力</span><b>${fP(kl.call)}</b></button>`;
-  if (kl.band0_dn != null && kl.band0_up != null) keys += `<span class="mkey band0"><span>0DTE 日內</span><b>${fP(kl.band0_dn)} – ${fP(kl.band0_up)}</b><i>±${fP(kl.band0_em)}</i></span>`;
-  if (kl.band_up != null && kl.band_dn != null) keys += `<span class="mkey band"><span>±1σ 帶</span><b>${fP(kl.band_dn)} – ${fP(kl.band_up)}</b></span>`;
-  $('#mKeys').innerHTML = keys;
-  $$('#mKeys .mkey[data-strike]').forEach((k) => { k.onclick = () => jumpToStrike(+k.dataset.strike); });
+  const lvls = [];
+  if (kl.band_up != null) lvls.push(['±1σ 上沿', kl.band_up, 'band']);
+  if (kl.band0_up != null) lvls.push(['0DTE 上沿', kl.band0_up, 'band0']);
+  if (kl.call != null) lvls.push(['壓力', kl.call, 'res']);
+  if (kl.flip != null) lvls.push(['Flip', kl.flip, 'flip']);
+  if (kl.flip0 != null) lvls.push(['0DTE flip', kl.flip0, 'dte0']);
+  if (kl.put != null) lvls.push(['支撐', kl.put, 'sup']);
+  if (kl.band0_dn != null) lvls.push(['0DTE 下沿', kl.band0_dn, 'band0']);
+  if (kl.band_dn != null) lvls.push(['±1σ 下沿', kl.band_dn, 'band']);
+  if (T.spot != null) lvls.push(['現價', T.spot, 'spot']);
+  lvls.sort((a, b) => (b[1] == null ? -1 : b[1]) - (a[1] == null ? -1 : a[1]));
+  $('#mKeys').innerHTML = `<div class="mladder">` + lvls.map(([name, v, cls]) =>
+    `<div class="mladderRow ${cls}" ${cls === 'spot' ? '' : `data-strike="${v}"`}><span>${name}</span><b>${fP(v)}</b></div>`).join('') + `</div>`;
+  $$('#mKeys .mladderRow[data-strike]').forEach((k) => { k.onclick = () => jumpToStrike(+k.dataset.strike); });
+  renderPlan(T); renderSnapshot(T);
 
   const sigHtml = (T.signals || []).map((s) => {
     const sUp = s.s >= 0, w = Math.round(Math.min(100, Math.abs(s.s) * 100));
@@ -910,6 +937,98 @@ function renderThesis() {
   }
   $('#mSigs').innerHTML = sigHtml + ofHtml;
 }
+function renderPlan(T) {
+  const P = T.plan || {};
+  const box = $('#mPlan');
+  if (!P.long || !P.short) { box.innerHTML = '<span class="dim">進出場參考:關鍵價位不足,無法推算</span>'; return; }
+  const card = (side, o, cls) => `<div class="mplanCard ${cls}">
+    <div class="mplanHead">${side}</div>
+    <div class="mplanRow"><span>進場</span><b>${fP(o.entry)}</b></div>
+    <div class="mplanRow"><span>停損</span><b>${fP(o.sl)}</b></div>
+    <div class="mplanRow"><span>停利</span><b>${fP(o.tp)}</b></div>
+  </div>`;
+  box.innerHTML = card('做多', P.long, 'up') + card('做空', P.short, 'dn');
+}
+function renderSnapshot(T) {
+  const box = $('#mSnapshot');
+  const col = D.cols.length ? D.cols[D.cols.length - 1] : null;
+  if (!col || !col.bins.length) { box.innerHTML = '<span class="dim">熱圖資料還沒載入</span>'; return; }
+  const P = T.plan || {};
+  const W = box.clientWidth || 660, H = 150;
+  const cv = box.querySelector('canvas') || document.createElement('canvas');
+  if (!box.querySelector('canvas')) { box.innerHTML = ''; box.appendChild(cv); }
+  cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d');
+  let lo = P.support, hi = P.resist;
+  if (lo == null || hi == null || hi <= lo) {
+    const c = P.spot || D.last;
+    const half = (col.bins.length > 1) ? (col.bins[col.bins.length - 1] - col.bins[0]) / 2 : 100;
+    lo = (c != null ? c : col.bins[0] + half) - half; hi = (c != null ? c : col.bins[0] + half) + half;
+  }
+  const pad = (hi - lo) * 0.15; lo -= pad; hi += pad;
+  const yOf = (p) => H - ((p - lo) / (hi - lo)) * H;
+  const bucket = D.bucket || S.bucket;
+  const lens = S.lens, vmax = (D.vmax && D.vmax[lens]) || 1, gamma = S.compress / 100;
+  const stripW = 64;
+  for (let j = 0; j < col.bins.length; j++) {
+    const b = col.bins[j]; if (b + bucket / 2 < lo || b - bucket / 2 > hi) continue;
+    const v = lensValue(col, j, lens);
+    const t = Math.min(1, Math.abs(v) / vmax) ** gamma;
+    const lut = lens === 'net' ? (v >= 0 ? LUT.netPos : LUT.netNeg) : LUT[lens];
+    const y0 = yOf(b + bucket / 2), y1 = yOf(b - bucket / 2);
+    ctx.fillStyle = lut[Math.min(255, Math.round(t * 255))];
+    ctx.fillRect(0, Math.min(y0, y1), stripW, Math.max(1, Math.abs(y1 - y0)));
+  }
+  ctx.strokeStyle = 'rgba(255,255,255,.08)'; ctx.lineWidth = 1;
+  ctx.strokeRect(0, 0, stripW, H);
+  const lvl = (p, color, label, dash) => {
+    if (p == null || p < lo || p > hi) return;
+    const y = yOf(p);
+    ctx.strokeStyle = color; ctx.setLineDash(dash || []); ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.moveTo(stripW, y); ctx.lineTo(W, y); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = color; ctx.font = '11px ui-monospace,Menlo,monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+    ctx.fillText(`${label} ${fP(p)}`, stripW + 6, y - 2);
+  };
+  const kl = T.key_levels || {};
+  lvl(kl.call, DN, '壓力');
+  lvl(kl.put, UP, '支撐');
+  lvl(kl.flip, '#e7ebf3', 'Flip');
+  lvl(kl.flip0, '#ffd166', '0DTE flip');
+  lvl(P.spot, '#9db4ff', '現價', [4, 3]);
+  if (P.long) { lvl(P.long.tp, UP, '多停利', [2, 2]); lvl(P.long.sl, DN, '多停損', [2, 2]); }
+  if (P.short) { lvl(P.short.sl, DN, '空停損', [2, 2]); lvl(P.short.tp, UP, '空停利', [2, 2]); }
+}
+/* ---- 導師精簡重點版(浮在熱圖旁,可拖動、可關閉) ---- */
+function renderMmini() {
+  const box = $('#mmini');
+  const T = D.thesis;
+  if (!T || !T.ok || !S.mmini) { box.hidden = true; return; }
+  const up = T.direction === '偏多';
+  const kl = T.key_levels || {};
+  const bits = [];
+  if (kl.flip0 != null) bits.push(`0DTE flip ${fP(kl.flip0)}`);
+  if (kl.put != null) bits.push(`支 ${fP(kl.put)}`);
+  if (kl.call != null) bits.push(`壓 ${fP(kl.call)}`);
+  $('#mminiBody').innerHTML = `<div class="mminiDir ${up ? 'up' : 'dn'}">${up ? '↑' : '↓'} ${T.direction} · 信心 ${T.confidence}%</div>
+    <div class="mminiNarr">${(T.narrative || '').slice(0, 140)}</div>
+    <div class="mminiKeys">${bits.join(' · ')}</div>`;
+  box.hidden = false;
+}
+$('#mminiX').onclick = () => { S.mmini = false; save(); $('#mmini').hidden = true; };
+(function () {
+  const mm = $('#mmini');
+  mm.addEventListener('mousedown', (e) => {
+    if (e.target.closest('button')) return;
+    const w = $('.chartwrap');
+    const sx = e.clientX, sy = e.clientY, ox = mm.offsetLeft, oy = mm.offsetTop;
+    const mv = (ev) => {
+      mm.style.left = Math.max(0, Math.min(w.clientWidth - mm.offsetWidth, ox + ev.clientX - sx)) + 'px';
+      mm.style.top = Math.max(0, Math.min(w.clientHeight - mm.offsetHeight, oy + ev.clientY - sy)) + 'px';
+    };
+    const up = () => { window.removeEventListener('mousemove', mv); window.removeEventListener('mouseup', up); };
+    window.addEventListener('mousemove', mv); window.addEventListener('mouseup', up);
+  });
+})();
 /* ---- orderflow momentum ---- */
 async function loadSq() {
   if (S.subMode !== 'sq' && !S.sqrib) { return; }
@@ -1014,10 +1133,10 @@ async function poll() {
       D.lastLatest = st.latest;
       if (!S.day) await loadAll(false); else renderSide();
     }
-    if (!S.day) { await pollBars(); loadEvents(false); }
+    if (!S.day) { await pollBars(); loadEvents(false); loadFlowMarks(); }
     if (!$('#view-anly').classList.contains('hidden') && st.latest !== D.anlyTs) loadAnalysis();
     if (!$('#view-table').classList.contains('hidden') && st.latest !== D.flowTs) loadFlow();
-    if (!$('#view-mentor').classList.contains('hidden') && st.latest !== D.thesisTs) loadThesis();
+    if (st.latest !== D.thesisTs) loadThesis();
     renderSide();
   } catch (e) {
     console.error(e);
@@ -1218,6 +1337,8 @@ function syncUI() {
   $('#gridH').checked = S.gridH; $('#gridV').checked = S.gridV; $('#cross').value = S.cross; $('#pmode').value = String(S.pmode);
   $('#auto').checked = S.auto; $('#pline').checked = S.pline; $('#llabels').checked = S.llabels; $('#stay').checked = S.stay;
   $('#lw').value = String(S.lw); $('#roff').value = S.roff;
+  $('#lcNQ').value = S.lineCol.NQ; $('#lcQQQ').value = S.lineCol.QQQ; $('#lcNDX').value = S.lineCol.NDX; $('#lcWGT').value = S.lineCol.WGT;
+  $('#setWrap').hidden = !S.sets; $('#setCaret').textContent = S.sets ? '▾' : '▸';
   $$('#anlyTabs button').forEach((b) => b.classList.toggle('on', S.anly === b.dataset.v));
   $$('#anlySkewSrc button').forEach((b) => b.classList.toggle('on', S.anlySkewSrc === b.dataset.v));
 }
@@ -1605,6 +1726,48 @@ class EventPrim {
   }
 }
 const evPrim = new EventPrim(); candle.attachPrimitive(evPrim);
+
+/* ---- orderflow 大單/掃單標記:後端由 trades 推出帶價事件,畫在熱圖左緣 ---- */
+let flowMarks = [];
+class FlowMarkPrim {
+  attached(p) { this.series = p.series; this.chart = p.chart; this.req = p.requestUpdate; }
+  detached() {}
+  updateAllViews() {}
+  redraw() { if (this.req) this.req(); }
+  paneViews() { return this._v || (this._v = [{ zOrder: () => 'top', renderer: () => ({ draw: (t) => this.draw(t) }) }]); }
+  draw(target) {
+    target.useBitmapCoordinateSpace((sc) => {
+      if (!S.flmark) return;
+      if (!flowMarks.length) return;
+      const ctx = sc.context, hr = sc.horizontalPixelRatio, vr = sc.verticalPixelRatio;
+      const ser = this.series;
+      ctx.font = `700 ${10 * hr}px -apple-system,"PingFang TC","Noto Sans TC",sans-serif`; ctx.textBaseline = 'middle';
+      const ex = 10 * hr, used = new Map();
+      for (const m of flowMarks) {
+        const y = ser.priceToCoordinate(m.p); if (y == null) continue;
+        const col = m.side === 'buy' ? UP : DN;
+        const glyph = m.kind === 'sweep' ? '掃' : '大';
+        const k = Math.round(y / 15), n = used.get(k) || 0; used.set(k, n + 1);
+        const yy = (y - n * 15) * vr;
+        ctx.beginPath(); ctx.arc(ex, yy, 7 * hr, 0, 7);
+        ctx.fillStyle = col; ctx.globalAlpha = 0.95; ctx.fill(); ctx.globalAlpha = 1;
+        ctx.lineWidth = 1.4 * hr; ctx.strokeStyle = 'rgba(8,11,17,.9)'; ctx.stroke();
+        ctx.fillStyle = '#0a0d13'; ctx.textAlign = 'center';
+        ctx.fillText(glyph, ex, yy + 0.5 * hr);
+        ctx.textAlign = 'left'; ctx.fillStyle = col;
+        ctx.fillText(`${m.side === 'buy' ? '買' : '賣'} ${f0.format(m.vol)}`, ex + 10 * hr, yy);
+      }
+    });
+  }
+}
+const flowMarkPrim = new FlowMarkPrim(); candle.attachPrimitive(flowMarkPrim); window.__flm = flowMarkPrim;
+async function loadFlowMarks() {
+  try {
+    const r = await api('flowmark', {});
+    flowMarks = (r && r.events) || [];
+  } catch (e) { flowMarks = []; }
+  flowMarkPrim.redraw();
+}
 const fmtTime = (t) => `台北 ${hmIn(t, 'Asia/Taipei')} · 紐約 ${hmIn(t, 'America/New_York')} · ${md(t)}`;
 function evTitle(e) {
   if (e.type === 'surge') return `${e.src} ${f0.format(e.strike)} ${e.cp === 'C' ? 'Call' : 'Put'} · ${e.dte === 0 ? '0DTE' : e.dte + ' 天後到期'}`;
@@ -1724,7 +1887,7 @@ function applyChartPrefs() {
   subChart.applyOptions({ grid: g });
   candle.priceScale().applyOptions({ mode: +S.pmode, autoScale: S.auto });
   candle.applyOptions({ priceLineVisible: S.pline });
-  for (const k in lineSeries) lineSeries[k].applyOptions({ lineWidth: lw(k), title: S.llabels ? lineTitle(k) : '', lastValueVisible: S.llabels });
+  for (const k in lineSeries) { const s = k.split('-')[0]; lineSeries[k].applyOptions({ color: (S.lineCol && S.lineCol[s]) || SRC_COL[s], lineWidth: lw(k), title: S.llabels ? lineTitle(k) : '', lastValueVisible: S.llabels }); }
 }
 const lw = (k) => (k.endsWith('flip') ? S.lw + 1 : S.lw);
 const lineTitle = (k) => { const [src, kind] = k.split('-'); return `${sn(src)} ${KIND_NAME[kind]}`; };
@@ -1736,11 +1899,22 @@ $('#auto').onchange = (e) => { S.auto = e.target.checked; save(); applyChartPref
 $('#pline').onchange = (e) => { S.pline = e.target.checked; save(); applyChartPrefs(); };
 $('#llabels').onchange = (e) => { S.llabels = e.target.checked; save(); applyChartPrefs(); };
 $('#stay').onchange = (e) => { S.stay = e.target.checked; save(); applyChartPrefs(); };
-$('#lw').onchange = (e) => { S.lw = +e.target.value; save(); applyChartPrefs(); };
+$('#lw').oninput = (e) => { S.lw = +e.target.value; save(); applyChartPrefs(); };
+[['lcNQ', 'NQ'], ['lcQQQ', 'QQQ'], ['lcNDX', 'NDX'], ['lcWGT', 'WGT']].forEach(([id, src]) => { $('#' + id).oninput = (e) => { S.lineCol[src] = e.target.value; save(); applyChartPrefs(); }; });
 $('#roff').oninput = (e) => { S.roff = +e.target.value; save(); applyChartPrefs(); };
 function setSidebar(off) { S.nosb = off; save(); $('.body').classList.toggle('nosidebar', off); $('#sideToggle').textContent = off ? '展開側欄' : '收起側欄'; }
 $('#sideToggle').onclick = () => setSidebar(!S.nosb);
 $('#reset2').onclick = () => $('#reset').click();
+$('#moreBtn').onclick = () => {
+  const t = $('#tmore'), open = t.hidden;
+  t.hidden = !open;
+  $('#moreBtn').textContent = open ? '更多 ▴' : '更多 ▾';
+};
+$('#setToggle').onclick = () => {
+  S.sets = !S.sets; save();
+  $('#setWrap').hidden = !S.sets;
+  $('#setCaret').textContent = S.sets ? '▾' : '▸';
+};
 $('#fs').onclick = () => { try { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen(); } catch (e) { /* ignore */ } };
 /* Alt + wheel = zoom the price axis only (turns auto-scale off) */
 $('#chart').addEventListener('wheel', (e) => {

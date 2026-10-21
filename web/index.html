@@ -16,10 +16,10 @@
       <span>NQ&nbsp;GEX</span>
     </div>
     <nav class="tabs" id="tabs">
-      <button class="on" data-tab="map">地圖</button>
+      <button class="on" data-tab="mentor">導師</button>
+      <button data-tab="map">地圖</button>
       <button data-tab="table">位置表</button>
       <button data-tab="anly">分析</button>
-      <button data-tab="mentor">導師</button>
     </nav>
     <div class="grow"></div>
     <label class="tzsel" title="圖上時間的時區">
@@ -36,7 +36,7 @@
   </header>
 
   <!-- ============================== MAP ============================== -->
-  <section id="view-map" class="view">
+  <section id="view-map" class="view hidden">
     <div class="toolbar" id="toolbar">
       <div class="grp"><span class="lbl">範圍</span>
         <div class="seg" data-key="range">
@@ -55,26 +55,29 @@
       <div class="grp"><span class="lbl">到期日</span>
         <div class="seg" data-key="scope"><button data-v="all">全部</button><button data-v="ex0">排除0DTE</button><button data-v="zero">只看0DTE</button></div>
       </div>
-      <div class="grp"><span class="lbl">熱圖類型</span>
-        <div class="seg" data-key="heatMode"><button data-v="strike" title="各履約價上的選擇權部位有多集中">履約價集中度</button><button data-v="profile" title="假設價格到了某個位置,整體 GEX 會變成多少(flip 就是這條曲線過零的地方)">GEX 壓力</button><button data-v="charm" title="隨時間流逝,各價位的 delta 每天會增減多少">Charm</button></div>
-      </div>
-      <div class="grp"><span class="lbl">熱圖來源</span>
-        <div class="seg" data-key="heatSrc"><button data-v="ALL">合計</button><button data-v="NQ">NQ</button><button data-v="QQQ">QQQ</button><button data-v="NDX">NDX</button></div>
-      </div>
-      <div class="grp"><span class="lbl">顯示</span>
-        <div class="seg" data-key="lens" id="lensSeg"><button data-v="abs"></button><button data-v="net"></button><button data-v="call"></button><button data-v="put"></button></div>
-      </div>
       <div class="grp"><span class="lbl">K棒</span>
         <div class="seg" data-key="tf"><button data-v="1">1分</button><button data-v="5">5分</button><button data-v="15">15分</button></div>
       </div>
-      <div class="grp"><span class="lbl">價格分組</span>
-        <select id="bucket">
-          <option value="5">5 點</option><option value="10">10 點</option><option value="25">25 點</option><option value="50">50 點</option><option value="100">100 點</option>
-        </select>
-      </div>
       <div class="grp tg"><span class="lbl">圖層</span>
         <div class="chips" id="layers">
-          <button data-v="heat">熱圖</button><button data-v="lines">牆 / Flip</button><button data-v="band" title="每條牆與 Flip 旁邊的淡色支撐壓力帶">支撐壓力帶</button><button data-v="emband" title="今天 ±1σ 預期震幅:現價 ± 現價 × 近月(非0DTE)ATM 隱波 × √(1/365),上下兩條虛線 + 淡色通道">預期波動帶</button><button data-v="profile">側邊分布</button><button data-v="sub">副圖</button><button data-v="events">事件</button><button data-v="sqrib" title="主圖最上方一條細帶:綠 = 主動買盤動能,紅 = 主動賣盤動能(預設關閉)">動能條</button>
+          <button data-v="heat">熱圖</button><button data-v="lines">牆 / Flip</button><button data-v="band" title="每條牆與 Flip 旁邊的淡色支撐壓力帶">支撐壓力帶</button><button data-v="emband" title="今天 ±1σ 預期震幅:現價 ± 現價 × 近月(非0DTE)ATM 隱波 × √(1/365),上下兩條虛線 + 淡色通道">預期波動帶</button><button data-v="profile">側邊分布</button><button data-v="sub">副圖</button><button data-v="events">事件</button><button data-v="flmark" title="把 orderflow 的大單與掃單標在熱圖對應價位(需 Windows Bookmap 送資料)">大單/掃單</button><button data-v="sqrib" title="主圖最上方一條細帶:綠 = 主動買盤動能,紅 = 主動賣盤動能(預設關閉)">動能條</button>
+        </div>
+      </div>
+      <button class="ghost tmoreBtn" id="moreBtn" title="顯示/隱藏進階控制">更多 ▾</button>
+      <div class="tmore" id="tmore" hidden>
+        <div class="grp"><span class="lbl">熱圖類型</span>
+          <div class="seg" data-key="heatMode"><button data-v="strike" title="各履約價上的選擇權部位有多集中">履約價集中度</button><button data-v="profile" title="假設價格到了某個位置,整體 GEX 會變成多少(flip 就是這條曲線過零的地方)">GEX 壓力</button><button data-v="charm" title="隨時間流逝,各價位的 delta 每天會增減多少">Charm</button></div>
+        </div>
+        <div class="grp"><span class="lbl">熱圖來源</span>
+          <div class="seg" data-key="heatSrc"><button data-v="ALL">合計</button><button data-v="NQ">NQ</button><button data-v="QQQ">QQQ</button><button data-v="NDX">NDX</button></div>
+        </div>
+        <div class="grp"><span class="lbl">顯示</span>
+          <div class="seg" data-key="lens" id="lensSeg"><button data-v="abs"></button><button data-v="net"></button><button data-v="call"></button><button data-v="put"></button></div>
+        </div>
+        <div class="grp"><span class="lbl">價格分組</span>
+          <select id="bucket">
+            <option value="5">5 點</option><option value="10">10 點</option><option value="25">25 點</option><option value="50">50 點</option><option value="100">100 點</option>
+          </select>
         </div>
       </div>
       <div class="grow"></div>
@@ -95,6 +98,10 @@
             <div class="dfilter" id="evFilter"><button data-v="surge">大量成交</button><button data-v="touch">觸價</button><button data-v="cross">穿越 Flip</button></div>
             <div class="dlist" id="dlist"></div>
             <div class="dfoot">只會在你點開時顯示,不會自己跳出來。</div>
+          </div>
+          <div class="mmini" id="mmini" hidden>
+            <div class="mminiHead"><b>導師重點</b><button class="x" id="mminiX" aria-label="關閉">×</button></div>
+            <div class="mminiBody" id="mminiBody">—</div>
           </div>
         </div>
         <div class="subwrap" id="subwrap">
@@ -126,6 +133,8 @@
           <label class="row chk"><input type="checkbox" id="wnorm"><span>先把三個來源縮到同樣規模<small>(否則金額最大的 NDX 會蓋過其他兩個)</small></span></label>
           <div class="note">預設比例 NDX 45 / QQQ 35 / NQ 20 是依你的判斷設的(NDX 機構為主、QQQ 散戶指標、NQ 選擇權體量小),不是從資料驗證出來的,可以隨時拖動滑桿調整,設定會記住。要使用請在上方「牆 / Flip 來源」按「加權合計」。</div>
         </div>
+        <button class="settoggle" id="setToggle" type="button">⚙ 顯示與圖表設定 <span class="caret" id="setCaret">▸</span></button>
+        <div id="setWrap" hidden>
         <div class="card" id="cardSettings">
           <h3>顯示調整</h3>
           <label class="row"><span>K棒配色</span><select id="candleStyle"><option value="mono">黑白</option><option value="rg">紅綠</option></select></label>
@@ -140,6 +149,7 @@
           <label class="row"><span>配色組合</span><select id="palPreset"></select></label>
           <div class="pick"><label>集中度 低<input type="color" id="cLow"></label><label>中<input type="color" id="cMid"></label><label>高<input type="color" id="cHigh"></label></div>
           <div class="pick"><label>正值 / Call<input type="color" id="cPos"></label><label>負值 / Put<input type="color" id="cNeg"></label></div>
+          <div class="pick"><label>牆線 NQ<input type="color" id="lcNQ"></label><label>QQQ<input type="color" id="lcQQQ"></label><label>NDX<input type="color" id="lcNDX"></label><label>加權<input type="color" id="lcWGT"></label></div>
           <div class="cbar" id="palBar"></div>
         </div>
         <div class="card" id="cardChart">
@@ -152,9 +162,10 @@
           <label class="row chk"><input type="checkbox" id="pline"><span>現價線</span></label>
           <label class="row chk"><input type="checkbox" id="llabels"><span>關卡文字標籤</span></label>
           <label class="row chk"><input type="checkbox" id="stay"><span>滾輪縮放時固定最新 K 棒</span></label>
-          <label class="row"><span>關卡線粗細</span><select id="lw"><option value="1">細</option><option value="2">中</option><option value="3">粗</option></select></label>
+          <label class="row"><span>牆 / Flip 線粗細</span><input type="range" id="lw" min="1" max="6" step="1"></label>
           <label class="row"><span>右側留白</span><input type="range" id="roff" min="0" max="40" step="1"></label>
           <div class="btnrow"><button class="ghost" id="sideToggle">收起側欄</button><button class="ghost" id="reset2">重設視角</button></div>
+        </div>
         </div>
         <p class="foot">模型假設:Call 為正、Put 為負(慣例,非事實);成交量沒有買賣方向;QQQ / NDX 以同一時刻的價格比例換算成 NQ 點位。</p>
       </aside>
@@ -235,7 +246,7 @@
   </section>
 
   <!-- ============================== MENTOR ============================== -->
-  <section id="view-mentor" class="view hidden">
+  <section id="view-mentor" class="view">
     <div class="mentorbar">
       <div class="grp"><span class="lbl">導師把 NQ / QQQ / NDX 三市場加權後,給出一段分析與單一方向結論</span></div>
       <div class="grow"></div>
@@ -258,6 +269,10 @@
         <p class="mmeta" id="mMeta"></p>
         <div class="mverify" id="mVerify" hidden></div>
         <div class="mnarr" id="mNarrative"></div>
+        <div class="msec"><h4>熱圖快照 + 進出場<small>依關鍵價位自動推算的參考,不是導師個別判斷</small></h4>
+          <div class="mplan" id="mPlan"></div>
+          <div class="msnap" id="mSnapshot"></div>
+        </div>
         <div class="msrcs" id="mSrcs"></div>
         <div class="msec"><h4>交易者視角<small>NQ 期貨交易者 · 0DTE 結構反推,非真實 DOM</small></h4><div id="mTrader"></div></div>
         <div class="msec"><h4>參與者結構<small>NQ / QQQ / NDX · 0DTE · 價內 / 價外 / 深價外 · 結構推測,非實際大單</small></h4><div id="mParts"></div></div>
