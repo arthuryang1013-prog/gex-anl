@@ -2102,6 +2102,11 @@ def api_speak(con, q):
     return dict(ok=True, audio=audio)
 
 
+def api_errors(con, q):
+    """最近幾筆伺服器錯誤(記憶體佇列),讓前端「錯誤紀錄」面板直接顯示,不用 SSH 看 log。"""
+    return dict(errors=list(_ERRORS), now=int(time.time()))
+
+
 ROUTES = dict(squeeze=api_squeeze, flowmom=api_flowmom, heatx=api_heat_x, book=api_book, events=api_events, history=api_history, days=api_days, heat=api_heat, net=api_net, levels=api_levels, status=api_status, bars=api_bars, dte=api_dte, net3=api_net3, band=api_band, band0=api_band0, pcr=api_pcr, skew=api_skew, flow=api_flow, thesis=api_thesis, ask=api_ask, speak=api_speak, errors=api_errors)
 
 
@@ -2202,11 +2207,6 @@ def _log_error(path, e):
             f.write(msg + "\n")
     except Exception:
         pass
-
-
-def api_errors(con, q):
-    """最近幾筆伺服器錯誤(記憶體佇列),讓前端「錯誤紀錄」面板直接顯示,不用 SSH 看 log。"""
-    return dict(errors=list(_ERRORS), now=int(time.time()))
 
 
 class Handler(BaseHTTPRequestHandler):
