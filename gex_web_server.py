@@ -1202,7 +1202,9 @@ def _thesis_src(con, src, lo, t, latest, spot, snaps):
         if flip is not None:
             gs.append(_clamp((spot - flip) / (spot * 0.01)))
         ge = _clamp(sum(gs) / len(gs))
-        val = f"淨GEX(含0DTE) {_fnum(net_all)}M · 現價{'高於' if spot > flip else '低於'} flip {_fnum(flip)}"
+        val = f"淨GEX(含0DTE) {_fnum(net_all)}M"
+        if flip is not None:
+            val += f" · 現價{'高於' if spot > flip else '低於'} flip {_fnum(flip)}"
         add("gma", "Gamma 環境", val, ge, 2, "正 Gamma(現價在 flip 之上、淨GEX為正)= 盤勢較穩、易均值回歸;負 Gamma = 波動放大。改含 0DTE,反映當下真實的 gamma 環境。")
     if net_zero is not None or flip0 is not None:
         gs0 = []
@@ -1211,7 +1213,9 @@ def _thesis_src(con, src, lo, t, latest, spot, snaps):
         if flip0 is not None:
             gs0.append(_clamp((spot - flip0) / (spot * 0.005)))
         ge0 = _clamp(sum(gs0) / len(gs0))
-        val0 = f"0DTE 淨GEX {_fnum(net_zero)}M · 現價{'高於' if spot > flip0 else '低於'} 0DTE flip {_fnum(flip0)}"
+        val0 = f"0DTE 淨GEX {_fnum(net_zero)}M"
+        if flip0 is not None:
+            val0 += f" · 現價{'高於' if spot > flip0 else '低於'} 0DTE flip {_fnum(flip0)}"
         add("gma0", "0DTE Gamma", val0, ge0, 2, "0DTE 是日內主導力量:0DTE 正 gamma = 易被釘價、區間震;0DTE 負 gamma = 接近/穿越 flip 時波動放大。")
     if pcr_vol is not None:
         add("pcr", "Put/Call 比", f"成交量 P/C = {pcr_vol}", _clamp((1.0 - pcr_vol) / 0.5), 2, ">1 表示 Put 較熱 = 避險買盤較強(偏空);<1 表示 Call 較熱(偏多)。成交量只看「熱度比例」,不含買賣方向。")
