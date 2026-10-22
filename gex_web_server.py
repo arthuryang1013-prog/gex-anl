@@ -2387,7 +2387,7 @@ def _check_token(token, cfg):
         pay, sig = token.split(".", 1)
         payload = base64.urlsafe_b64decode(pay.encode("utf-8"))
         expect = hmac.new(secret, payload, hashlib.sha256).digest()
-        if not hmac.compare_digest(sig.encode("utf-8"), base64.urlsafe_b64encode(expect).decode("utf-8")):
+        if not hmac.compare_digest(sig.encode("utf-8"), base64.urlsafe_b64encode(expect)):
             return None
         user, exp = payload.decode("utf-8").rsplit(":", 1)
         if int(exp) < time.time():
