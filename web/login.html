@@ -39,6 +39,10 @@
   }
   .field input:focus{border-color:#e7a44c;box-shadow:0 0 0 3px rgba(231,164,76,.14)}
   .field input::placeholder{color:#5a6472}
+  .pwrap{position:relative}
+  .pwrap input{padding-right:56px}
+  .eye{position:absolute;top:50%;right:8px;transform:translateY(-50%);background:none;border:0;color:#8a93a4;font-size:12px;cursor:pointer;padding:4px 6px;font-family:inherit}
+  .eye:hover{color:#e9edf4}
   .go{
     width:100%;margin-top:6px;padding:12px;border:0;border-radius:10px;cursor:pointer;
     background:#e7a44c;color:#16100a;font-size:14.5px;font-weight:650;font-family:inherit;
@@ -62,14 +66,17 @@
       <div class="sub">NQ GEX · Orderflow 監控台</div>
     </div>
 
-    <form id="loginForm" autocomplete="on">
+    <form id="loginForm" method="post" action="/api/login" autocomplete="on">
       <div class="field">
         <label for="u">帳號</label>
-        <input id="u" name="username" type="text" autocomplete="username" placeholder="你的帳號" required autofocus>
+        <input id="u" name="user" type="text" autocomplete="username" placeholder="你的帳號" required autofocus>
       </div>
       <div class="field">
         <label for="p">密碼</label>
-        <input id="p" name="password" type="password" autocomplete="current-password" placeholder="你的密碼" required>
+        <div class="pwrap">
+          <input id="p" name="pass" type="password" autocomplete="current-password" placeholder="你的密碼" required>
+          <button type="button" id="eye" class="eye">顯示</button>
+        </div>
       </div>
       <button class="go" id="go" type="submit">登入</button>
       <div class="err" id="err">帳號或密碼錯誤</div>
@@ -80,35 +87,22 @@
 
 <script>
 (function () {
-  var u = document.getElementById('u'), p = document.getElementById('p');
-  var go = document.getElementById('go'), err = document.getElementById('err');
-  var form = document.getElementById('loginForm');
-
-  // 若已經登入,直接進主畫面
-  fetch('/api/status', { headers: { 'Accept': 'application/json' } })
-    .then(function (r) { if (r.ok) location.href = '/'; })
-    .catch(function () {});
-
-  form.addEventListener('submit', function (e) {
-    e.preventDefault();
-    err.classList.remove('show');
-    go.disabled = true; go.textContent = '登入中…';
-    fetch('/api/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user: u.value, pass: p.value })
-    }).then(function (r) {
-      if (r.ok) { location.href = '/'; return; }
-      err.classList.add('show');
-      p.value = '';
-      p.focus();
-      go.disabled = false; go.textContent = '登入';
-    }).catch(function () {
-      err.textContent = '連線失敗,請稍後再試';
-      err.classList.add('show');
-      go.disabled = false; go.textContent = '登入';
+  // 顯示密碼切換(選用功能,不影響登入)
+  var eye = document.getElementById('eye'), p = document.getElementById('p');
+  if (eye && p) {
+    eye.addEventListener('click', function () {
+      if (p.type === 'password') { p.type = 'text'; eye.textContent = '隱藏'; }
+      else { p.type = 'password'; eye.textContent = '顯示'; }
     });
-  });
+  }
+  // 帳密錯誤時,伺服器會導回 /login?e=1,這裡把錯誤訊息顯示出來
+  if (location.search.indexOf('e=1') !== -1 || location.search.indexOf('e=2') !== -1) {
+    var err = document.getElementById('err');
+    if (err) {
+      err.textContent = location.search.indexOf('e=2') !== -1 ? '登入系統暫時無法使用,請稍後再試' : '帳號或密碼錯誤';
+      err.classList.add('show');
+    }
+  }
 })();
 </script>
 </body>

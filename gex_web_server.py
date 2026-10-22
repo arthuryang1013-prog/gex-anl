@@ -2501,25 +2501,38 @@ class Handler(BaseHTTPRequestHandler):
         try:
             n = int(self.headers.get("Content-Length") or 0)
             raw = self.rfile.read(n) if n else b""
-            data = json.loads(raw.decode("utf-8") or "{}")
         except Exception:
-            data = {}
+            raw = b""
+        ctype = (self.headers.get("Content-Type") or "").lower()
+        data = {}
+        if "application/json" in ctype:
+            try:
+                data = json.loads(raw.decode("utf-8") or "{}")
+                if not isinstance(data, dict):
+                    data = {}
+            except Exception:
+                data = {}
+        else:
+            # 傳統表單送出(application/x-www-form-urlencoded),不依賴瀏覽器 JS
+            try:
+                qs = parse_qs(raw.decode("utf-8"))
+                data = {k: (v[0] if v else "") for k, v in qs.items()}
+            except Exception:
+                data = {}
         cfg = load_config()
         user = (cfg.get("auth_user") or "").strip()
         pw = (cfg.get("auth_pass") or "")
         ok = bool(user and pw and (data.get("user") or "") == user and (data.get("pass") or "") == pw)
         if not ok:
-            return self._send(401, b'{"ok":false,"error":"unauthorized"}', "application/json")
+            return self._redirect("/login?e=1")
         token = _make_token(user, cfg)
         if not token:
-            return self._send(500, b'{"ok":false,"error":"session"}', "application/json")
-        body = b'{"ok":true}'
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
+            return self._redirect("/login?e=2")
+        self.send_response(302)
+        self.send_header("Location", "/")
         self.send_header("Set-Cookie", f"gexoflow_session={token}; Path=/; HttpOnly; Max-Age={SESSION_TTL}; SameSite=Lax")
+        self.send_header("Content-Length", "0")
         self.end_headers()
-        self.wfile.write(body)
 
 
 def main():
