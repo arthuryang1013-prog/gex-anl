@@ -60,6 +60,8 @@ MAX_LEVEL_FRAMES = 120    # snapshots for which wall / flip lines are computed (
 BAND = 0.05               # heat map covers price +/- 5 %
 MIN_RANGE_PTS = 40.0      # 導師分析最低參考波動範圍:預期波動帶半寬不足 20 點就補到 ±20(共 40 點)
 SESSION_TTL = 60 * 60 * 24 * 30   # 登入 session 有效期:30 天
+LOGIN_MAX_FAILS = 5               # 同一來源在時間窗內連續登入失敗達此數就暫時擋(防暴力破解)
+LOGIN_WINDOW = 600                # 失敗計算時間窗:10 分鐘
 
 STATUS = {"bars": "none", "bars_err": ""}
 _cache_lock = threading.Lock()
@@ -2397,6 +2399,46 @@ def _check_token(token, cfg):
         return None
 
 
+_login_fails = {}                 # ip -> [失敗時間戳]
+_login_lock = threading.Lock()
+
+
+def _login_blocked(ip):
+    """同一來源短時間內連續失敗太多次就擋(防暴力破解)。"""
+    with _login_lock:
+        ts = _login_fails.get(ip)
+        if not ts:
+            return False
+        now = time.time()
+        recent = [t for t in ts if now - t < LOGIN_WINDOW]
+        if recent:
+            _login_fails[ip] = recent
+        else:
+            _login_fails.pop(ip, None)
+        return len(recent) >= LOGIN_MAX_FAILS
+
+
+def _login_fail(ip):
+    with _login_lock:
+        _login_fails.setdefault(ip, []).append(time.time())
+
+
+def _login_ok(ip):
+    with _login_lock:
+        _login_fails.pop(ip, None)
+
+
+def _client_ip(headers, client_addr):
+    """取真實來源 IP:有走 nginx 時看轉發表頭,沒有就直接看連線來源。"""
+    xff = (headers.get("X-Forwarded-For") or "").strip()
+    if xff:
+        return xff.split(",")[-1].strip()   # nginx 通常把真實 IP 接在最後
+    xri = (headers.get("X-Real-IP") or "").strip()
+    if xri:
+        return xri
+    return client_addr[0]
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "GexWeb/1.0"
 
@@ -2427,6 +2469,9 @@ class Handler(BaseHTTPRequestHandler):
         pw = (cfg.get("auth_pass") or "")
         if not user or not pw:
             return True
+        ip = _client_ip(self.headers, self.client_address)
+        if _login_blocked(ip):
+            return False
         ah = self.headers.get("Authorization", "")
         if ah.startswith("Basic "):
             try:
@@ -2434,7 +2479,10 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 got = ""
             if got == f"{user}:{pw}":
+                _login_ok(ip)
                 return True
+            _login_fail(ip)   # 帶了 Basic 表頭但密碼錯 → 記一次失敗
+            return False
         return _check_token(self._cookie_value("gexoflow_session"), cfg) == user
 
     def _redirect(self, loc):
@@ -2522,15 +2570,20 @@ class Handler(BaseHTTPRequestHandler):
         cfg = load_config()
         user = (cfg.get("auth_user") or "").strip()
         pw = (cfg.get("auth_pass") or "")
+        ip = _client_ip(self.headers, self.client_address)
+        if _login_blocked(ip):
+            return self._redirect("/login?e=3")
         ok = bool(user and pw and (data.get("user") or "") == user and (data.get("pass") or "") == pw)
         if not ok:
+            _login_fail(ip)
             return self._redirect("/login?e=1")
+        _login_ok(ip)
         token = _make_token(user, cfg)
         if not token:
             return self._redirect("/login?e=2")
         self.send_response(302)
         self.send_header("Location", "/")
-        self.send_header("Set-Cookie", f"gexoflow_session={token}; Path=/; HttpOnly; Max-Age={SESSION_TTL}; SameSite=Lax")
+        self.send_header("Set-Cookie", f"gexoflow_session={token}; Path=/; HttpOnly; Secure; Max-Age={SESSION_TTL}; SameSite=Lax")
         self.send_header("Content-Length", "0")
         self.end_headers()
 

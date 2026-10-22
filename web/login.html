@@ -95,11 +95,14 @@
       else { p.type = 'password'; eye.textContent = '顯示'; }
     });
   }
-  // 帳密錯誤時,伺服器會導回 /login?e=1,這裡把錯誤訊息顯示出來
-  if (location.search.indexOf('e=1') !== -1 || location.search.indexOf('e=2') !== -1) {
+  // 帳密錯誤時,伺服器會導回 /login?e=1(密碼錯)、e=2(系統問題)、e=3(失敗太多次),這裡把錯誤訊息顯示出來
+  if (location.search.indexOf('e=1') !== -1 || location.search.indexOf('e=2') !== -1 || location.search.indexOf('e=3') !== -1) {
     var err = document.getElementById('err');
     if (err) {
-      err.textContent = location.search.indexOf('e=2') !== -1 ? '登入系統暫時無法使用,請稍後再試' : '帳號或密碼錯誤';
+      var msg = '帳號或密碼錯誤';
+      if (location.search.indexOf('e=3') !== -1) { msg = '失敗太多次,請稍後再試'; }
+      else if (location.search.indexOf('e=2') !== -1) { msg = '登入系統暫時無法使用,請稍後再試'; }
+      err.textContent = msg;
       err.classList.add('show');
     }
   }
