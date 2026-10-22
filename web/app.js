@@ -6,10 +6,10 @@
 const LW = window.LightweightCharts;
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
-const SRC_COL = { NQ: '#7aa2ff', QQQ: '#39d98a', NDX: '#ffb454', SUM: '#d58cff', WGT: '#ff7ad9' };
+const SRC_COL = { NQ: '#7d9bd9', QQQ: '#39d98a', NDX: '#e7a44c', SUM: '#d58cff', WGT: '#ff7ad9' };
 const SRC_ORDER = ['NQ', 'QQQ', 'NDX', 'WGT'];
 const sn = (s) => (s === 'WGT' ? '加權合計' : s);
-const UP = '#26c98b', DN = '#ff5c6c';
+const UP = '#2bc08b', DN = '#ff5c6c';
 const KINDS = [['call', 'Call 牆'], ['put', 'Put 牆'], ['flip', 'Flip']];
 const SCOPE_KEY = { all: 'ALL', ex0: 'EX0', zero: 'ZERO' };
 
@@ -17,10 +17,10 @@ const SCOPE_KEY = { all: 'ALL', ex0: 'EX0', zero: 'ZERO' };
 const DEF = { hours: 8, day: null, tz: 'Asia/Taipei', srcs: ['NQ', 'QQQ', 'NDX'], basis: 'oi', scope: 'all', lens: 'abs',
   tf: 1, bucket: 25, heat: true, lines: true, profile: true, sub: true, alpha: 85, compress: 70, follow: true, candle: 'mono',
   heatMode: 'strike', heatSrc: 'ALL', band: true, bandW: 20, bandA: 45, wgt: { NQ: 20, QQQ: 35, NDX: 45 }, wver: 2, wnorm: true, events: true, evTypes: { surge: true, touch: true, cross: true }, evSeen: 0,
-  pal: { name: '預設', low: '#3752cd', mid: '#1c96c3', high: '#ffbc48', pos: '#26c98b', neg: '#ff5c6c' },
+  pal: { name: '預設', low: '#3752cd', mid: '#1c96c3', high: '#ffbc48', pos: '#2bc08b', neg: '#ff5c6c' },
   gridH: false, gridV: false, cross: 'normal', pmode: 0, auto: true, pline: true, llabels: true, stay: false, lw: 3, roff: 8, nosb: false,
   subMode: 'net', sqrib: false, emband: true, anly: 'pcr', anlyPcrBasis: 'vol', anlySkewSrc: 'NQ', anlyDivBasis: 'oi', anlyDivScope: 'all',
-  flmark: true, sets: false, mmini: true, lineCol: { NQ: '#7aa2ff', QQQ: '#39d98a', NDX: '#ffb454', WGT: '#ff7ad9' } };
+  flmark: true, sets: false, mmini: true, lineCol: { NQ: '#7d9bd9', QQQ: '#39d98a', NDX: '#e7a44c', WGT: '#ff7ad9' } };
 const S = { ...DEF };
 try { if (/[?&]reset\b/.test(location.search)) localStorage.removeItem('gexweb.v1'); } catch (e) { /* ignore */ }
 try { const o = JSON.parse(localStorage.getItem('gexweb.v1') || '{}'); Object.assign(S, o); S.pal = { ...DEF.pal, ...(o.pal || {}) }; S.evTypes = { ...DEF.evTypes, ...(o.evTypes || {}) }; S.wgt = { ...DEF.wgt, ...(o.wgt || {}) }; S.lineCol = { ...DEF.lineCol, ...(o.lineCol || {}) }; if ((o.wver || 0) < 2) { S.wgt = { ...DEF.wgt }; S.wver = 2; } if (S.subMode !== 'net' && S.subMode !== 'sq') S.subMode = 'net'; if (!['pcr', 'skew', 'div'].includes(S.anly)) S.anly = 'pcr'; if (!['vol', 'oi'].includes(S.anlyPcrBasis)) S.anlyPcrBasis = 'vol'; if (!['NQ', 'QQQ', 'NDX'].includes(S.anlySkewSrc)) S.anlySkewSrc = 'NQ'; if (!['oi', 'vol'].includes(S.anlyDivBasis)) S.anlyDivBasis = 'oi'; if (!['all', 'ex0', 'zero'].includes(S.anlyDivScope)) S.anlyDivScope = 'all'; } catch (e) { /* storage may be blocked */ }
@@ -136,8 +136,8 @@ function buildLUTs() {
 }
 buildLUTs();
 const PRESETS = {
-  '預設': { low: '#3752cd', mid: '#1c96c3', high: '#ffbc48', pos: '#26c98b', neg: '#ff5c6c' },
-  '熱力(紫→紅→黃)': { low: '#4b1d91', mid: '#d8325a', high: '#ffd35c', pos: '#ffb454', neg: '#7a5cff' },
+  '預設': { low: '#3752cd', mid: '#1c96c3', high: '#ffbc48', pos: '#2bc08b', neg: '#ff5c6c' },
+  '熱力(紫→紅→黃)': { low: '#4b1d91', mid: '#d8325a', high: '#ffd35c', pos: '#e7a44c', neg: '#7a5cff' },
   '冷色(藍→青→白)': { low: '#12306b', mid: '#2a7fbf', high: '#aef0ff', pos: '#5de0e6', neg: '#8f7bff' },
   '色盲友善(藍/橘)': { low: '#2b3a8f', mid: '#6a9fd8', high: '#f2a541', pos: '#f2a541', neg: '#4a90e2' },
   '黑白灰階': { low: '#2a2f3a', mid: '#8a93a6', high: '#ffffff', pos: '#e8ecf5', neg: '#6c7488' },
@@ -146,7 +146,7 @@ const PRESETS = {
 /* ------------------------------ charts ------------------------------ */
 const baseOpts = () => ({
   autoSize: true,
-  layout: { background: { type: 'solid', color: 'transparent' }, textColor: '#8893a8', fontFamily: 'ui-monospace,"SF Mono",Menlo,monospace', fontSize: 11, attributionLogo: true },
+  layout: { background: { type: 'solid', color: 'transparent' }, textColor: '#8a93a4', fontFamily: 'ui-monospace,"SF Mono",Menlo,monospace', fontSize: 11, attributionLogo: true },
   grid: { vertLines: { visible: S.gridV, color: 'rgba(255,255,255,.04)' }, horzLines: { visible: S.gridH, color: 'rgba(255,255,255,.045)' } },
   rightPriceScale: { borderVisible: false, minimumWidth: 78, scaleMargins: { top: 0.06, bottom: 0.08 } },
   timeScale: { borderVisible: false, timeVisible: true, secondsVisible: false, rightOffset: S.roff, rightBarStaysOnScroll: S.stay, barSpacing: 7, minBarSpacing: 0.4,
@@ -188,17 +188,17 @@ const flowCum = subChart.addSeries(LW.BaselineSeries, {
 const spdSeries = subChart.addSeries(LW.HistogramSeries, { visible: false, priceScaleId: 'spd', lastValueVisible: false, priceLineVisible: false,
   priceFormat: { type: 'custom', formatter: (v) => f0.format(v) + ' 口/分', minMove: 1 } });
 subChart.priceScale('spd').applyOptions({ scaleMargins: { top: 0.58, bottom: 0.03 }, borderVisible: false, visible: false });
-const netZero = subChart.addSeries(LW.LineSeries, { color: '#ffb454', lineWidth: 2, visible: false, lastValueVisible: true, priceLineVisible: false, title: '0DTE',
+const netZero = subChart.addSeries(LW.LineSeries, { color: '#e7a44c', lineWidth: 2, visible: false, lastValueVisible: true, priceLineVisible: false, title: '0DTE',
   priceFormat: { type: 'custom', formatter: (v) => fM(v).replace('+', ''), minMove: 0.01 } });
-const netEx0 = subChart.addSeries(LW.LineSeries, { color: '#7aa2ff', lineWidth: 2, visible: false, lastValueVisible: true, priceLineVisible: false, title: '排除0DTE',
+const netEx0 = subChart.addSeries(LW.LineSeries, { color: '#7d9bd9', lineWidth: 2, visible: false, lastValueVisible: true, priceLineVisible: false, title: '排除0DTE',
   priceFormat: { type: 'custom', formatter: (v) => fM(v).replace('+', ''), minMove: 0.01 } });
 const subSeries = () => (S.subMode === 'sq' ? flowCum : netSeries);
-const ORANGE = '#ffb454';
+const ORANGE = '#e7a44c';
 
 /* ---- ±1σ expected-move band (two dashed amber lines + a faint fill channel behind the candles) ---- */
-const bandUp = chart.addSeries(LW.LineSeries, { color: '#ffb454', lineWidth: 1, lineStyle: 2, lineType: LW.LineType.WithSteps, visible: S.emband, lastValueVisible: S.emband, priceLineVisible: false, crosshairMarkerVisible: false, title: '±1σ 上沿', autoscaleInfoProvider: () => null,
+const bandUp = chart.addSeries(LW.LineSeries, { color: '#e7a44c', lineWidth: 1, lineStyle: 2, lineType: LW.LineType.WithSteps, visible: S.emband, lastValueVisible: S.emband, priceLineVisible: false, crosshairMarkerVisible: false, title: '±1σ 上沿', autoscaleInfoProvider: () => null,
   priceFormat: { type: 'custom', formatter: (v) => fP(v), minMove: 0.25 } });
-const bandDn = chart.addSeries(LW.LineSeries, { color: '#ffb454', lineWidth: 1, lineStyle: 2, lineType: LW.LineType.WithSteps, visible: S.emband, lastValueVisible: S.emband, priceLineVisible: false, crosshairMarkerVisible: false, title: '±1σ 下沿', autoscaleInfoProvider: () => null,
+const bandDn = chart.addSeries(LW.LineSeries, { color: '#e7a44c', lineWidth: 1, lineStyle: 2, lineType: LW.LineType.WithSteps, visible: S.emband, lastValueVisible: S.emband, priceLineVisible: false, crosshairMarkerVisible: false, title: '±1σ 下沿', autoscaleInfoProvider: () => null,
   priceFormat: { type: 'custom', formatter: (v) => fP(v), minMove: 0.25 } });
 /* ---- 0DTE intraday band (two dashed teal lines; tighter and shrinking into the close) ---- */
 const band0Up = chart.addSeries(LW.LineSeries, { color: '#5eead4', lineWidth: 1, lineStyle: 2, lineType: LW.LineType.WithSteps, visible: S.emband, lastValueVisible: S.emband, priceLineVisible: false, crosshairMarkerVisible: false, title: '0DTE 上沿', autoscaleInfoProvider: () => null,
@@ -228,7 +228,7 @@ class EmbBandPrim {
         if (x0 == null || x1 == null || yU == null || yD == null || x1 <= x0) continue;
         if (x1 < -2 || x0 > W / hr + 2) continue;
         const top = Math.round(Math.min(yU, yD) * vr), h = Math.max(1, Math.round(Math.abs(yD - yU) * vr));
-        ctx.fillStyle = 'rgba(255,180,84,.05)';
+        ctx.fillStyle = 'rgba(231,164,76,.05)';
         ctx.fillRect(Math.round(x0 * hr), top, Math.max(1, Math.round((x1 - x0) * hr)), h);
       }
     });
@@ -239,7 +239,7 @@ const embandPrim = new EmbBandPrim(); candle.attachPrimitive(embandPrim);
 /* ---- analysis page charts (P/C ratio, IV skew, three-source divergence) ---- */
 const anlyOpts = (pf) => ({
   autoSize: true,
-  layout: { background: { type: 'solid', color: 'transparent' }, textColor: '#8893a8', fontFamily: 'ui-monospace,"SF Mono",Menlo,monospace', fontSize: 12, attributionLogo: false },
+  layout: { background: { type: 'solid', color: 'transparent' }, textColor: '#8a93a4', fontFamily: 'ui-monospace,"SF Mono",Menlo,monospace', fontSize: 12, attributionLogo: false },
   grid: { vertLines: { visible: false, color: 'rgba(255,255,255,.04)' }, horzLines: { visible: true, color: 'rgba(255,255,255,.045)' } },
   rightPriceScale: { borderVisible: false, minimumWidth: 96, scaleMargins: { top: 0.08, bottom: 0.1 } },
   timeScale: { borderVisible: false, timeVisible: true, secondsVisible: false, rightOffset: 6, rightBarStaysOnScroll: false, barSpacing: 8, minBarSpacing: 0.5,
@@ -252,13 +252,13 @@ const anlyOpts = (pf) => ({
   handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
 });
 const pcrChart = LW.createChart($('#pcrChart'), anlyOpts((v) => v.toFixed(2) + '×'));
-const pcrAll = pcrChart.addSeries(LW.LineSeries, { color: '#7aa2ff', lineWidth: 2, lastValueVisible: true, priceLineVisible: false, title: '全部到期' });
-const pcr0 = pcrChart.addSeries(LW.LineSeries, { color: '#ffb454', lineWidth: 2, lineStyle: 2, lastValueVisible: true, priceLineVisible: false, title: '0DTE' });
+const pcrAll = pcrChart.addSeries(LW.LineSeries, { color: '#7d9bd9', lineWidth: 2, lastValueVisible: true, priceLineVisible: false, title: '全部到期' });
+const pcr0 = pcrChart.addSeries(LW.LineSeries, { color: '#e7a44c', lineWidth: 2, lineStyle: 2, lastValueVisible: true, priceLineVisible: false, title: '0DTE' });
 pcrAll.createPriceLine({ price: 1, color: 'rgba(255,255,255,.25)', lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: 'P = C' });
 const skewChart = LW.createChart($('#skewChart'), anlyOpts((v) => (v >= 0 ? '+' : '') + v.toFixed(1) + ' vol'));
 const skewLine = skewChart.addSeries(LW.BaselineSeries, {
-  baseValue: { type: 'price', price: 0 }, topLineColor: '#ffb454', topFillColor1: 'rgba(255,180,84,.22)', topFillColor2: 'rgba(255,180,84,.02)',
-  bottomLineColor: '#7aa2ff', bottomFillColor1: 'rgba(122,162,255,.02)', bottomFillColor2: 'rgba(122,162,255,.22)',
+  baseValue: { type: 'price', price: 0 }, topLineColor: '#e7a44c', topFillColor1: 'rgba(231,164,76,.22)', topFillColor2: 'rgba(231,164,76,.02)',
+  bottomLineColor: '#7d9bd9', bottomFillColor1: 'rgba(125,155,217,.02)', bottomFillColor2: 'rgba(125,155,217,.22)',
   lineWidth: 2, lastValueVisible: true, priceLineVisible: false, title: '25Δ 偏斜', priceFormat: { type: 'custom', formatter: (v) => (v >= 0 ? '+' : '') + v.toFixed(1) + ' vol', minMove: 0.1 } });
 const divChart = LW.createChart($('#divChart'), anlyOpts((v) => fP(v)));
 const divSpreadChart = LW.createChart($('#divSpreadChart'), anlyOpts((v) => f0.format(v) + ' 點'));
@@ -266,7 +266,7 @@ const divFlip = {};
 for (const src of ['NQ', 'QQQ', 'NDX']) {
   divFlip[src] = divChart.addSeries(LW.LineSeries, { color: SRC_COL[src], lineWidth: 2, lineType: LW.LineType.WithSteps, lastValueVisible: true, priceLineVisible: false, title: src, priceFormat: { type: 'custom', formatter: (v) => fP(v), minMove: 0.5 } });
 }
-const divSpread = divSpreadChart.addSeries(LW.LineSeries, { color: '#ffb454', lineWidth: 2, lineType: LW.LineType.WithSteps, lastValueVisible: true, priceLineVisible: false, title: '分歧度', priceFormat: { type: 'custom', formatter: (v) => f0.format(v) + ' 點', minMove: 0.5 } });
+const divSpread = divSpreadChart.addSeries(LW.LineSeries, { color: '#e7a44c', lineWidth: 2, lineType: LW.LineType.WithSteps, lastValueVisible: true, priceLineVisible: false, title: '分歧度', priceFormat: { type: 'custom', formatter: (v) => f0.format(v) + ' 點', minMove: 0.5 } });
 
 /* keep the two time axes locked together (both are built on the same candle grid) */
 let syncing = false;
@@ -347,7 +347,7 @@ class HeatPrim {
       const ci = cursorIdx();
       if (R.on && ci >= 0 && cols[ci] && cols[ci].si >= 0) {
         const x = ts.timeToCoordinate(D.barT[cols[ci].si]);
-        if (x != null) { ctx.fillStyle = 'rgba(255,180,84,.85)'; ctx.fillRect(Math.round(x * hr), 0, Math.max(1, Math.round(hr)), sc.bitmapSize.height); }
+        if (x != null) { ctx.fillStyle = 'rgba(231,164,76,.85)'; ctx.fillRect(Math.round(x * hr), 0, Math.max(1, Math.round(hr)), sc.bitmapSize.height); }
       }
     });
   }
@@ -1148,7 +1148,7 @@ function updateLegend(param) {
   const keys = S.lines ? `<div class="keys"><span class="k">${sw('')}Call 牆</span><span class="k">${sw('2 3')}Put 牆</span><span class="k">${sw('7 4')}Flip</span>${S.srcs.map((s) => `<span class="k"><i style="width:8px;height:8px;border-radius:50%;background:${SRC_COL[s]};display:inline-block"></i>${sn(s)}</span>`).join('')}</div>` : '';
   const bandU = D.bandUpPts[D.bandUpPts.length - 1], bandD = D.bandDnPts[D.bandDnPts.length - 1];
   const band0U = D.band0UpPts[D.band0UpPts.length - 1], band0D = D.band0DnPts[D.band0DnPts.length - 1];
-  const bandKeys = (S.emband && (D.bandUpPts.length || D.band0UpPts.length)) ? `<div class="keys"><span class="k">${sw('4 3', '#ffb454')}±1σ ${bandD && bandD.value != null ? fP(bandD.value) : '—'} – ${bandU && bandU.value != null ? fP(bandU.value) : '—'}</span><span class="k">${sw('4 3', '#5eead4')}0DTE ${band0D && band0D.value != null ? fP(band0D.value) : '—'} – ${band0U && band0U.value != null ? fP(band0U.value) : '—'}</span></div>` : '';
+  const bandKeys = (S.emband && (D.bandUpPts.length || D.band0UpPts.length)) ? `<div class="keys"><span class="k">${sw('4 3', '#e7a44c')}±1σ ${bandD && bandD.value != null ? fP(bandD.value) : '—'} – ${bandU && bandU.value != null ? fP(bandU.value) : '—'}</span><span class="k">${sw('4 3', '#5eead4')}0DTE ${band0D && band0D.value != null ? fP(band0D.value) : '—'} – ${band0U && band0U.value != null ? fP(band0U.value) : '—'}</span></div>` : '';
   const N = modeNames(), lut = S.lens === 'net' ? null : LUT[S.lens];
   const stops = lut ? [0, 64, 128, 192, 255].map((i) => lut[i]).join(',') : [LUT.netNeg[255], LUT.netNeg[140], 'rgba(0,0,0,0)', LUT.netPos[140], LUT.netPos[255]].join(',');
   const lensName = { abs: N.abs, net: 'Net(正負)', call: N.c, put: N.p }[S.lens];
@@ -1546,7 +1546,7 @@ function jumpToStrike(strike) {
     ps.applyOptions({ autoScale: false });
     ps.setVisibleRange({ from: strike - span / 2, to: strike + span / 2 });
     if (flowHL) candle.removePriceLine(flowHL);
-    flowHL = candle.createPriceLine({ price: strike, color: '#ffb454', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '活動' });
+    flowHL = candle.createPriceLine({ price: strike, color: '#e7a44c', lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '活動' });
     clearTimeout(flowHL._h); flowHL._h = setTimeout(() => { if (flowHL) { candle.removePriceLine(flowHL); flowHL = null; } }, 8000);
   }, 60);
   toast(`已在地圖定位 ${f0.format(strike)}(橘色虛線標記)`);
@@ -1681,7 +1681,7 @@ class EventPrim {
         ctx.beginPath(); ctx.arc(x * hr, yy * vr, r * hr, 0, 7);
         ctx.fillStyle = evColor(e); ctx.globalAlpha = 0.95; ctx.fill(); ctx.globalAlpha = 1;
         ctx.lineWidth = 1.5 * hr; ctx.strokeStyle = 'rgba(8,11,17,.9)'; ctx.stroke();
-        ctx.fillStyle = '#0a0d13'; ctx.fillText(evGlyph(e), x * hr, yy * vr + 0.5 * hr);
+        ctx.fillStyle = '#0a0d12'; ctx.fillText(evGlyph(e), x * hr, yy * vr + 0.5 * hr);
         evHits.push({ x, y: yy, e });
       }
     });
@@ -1714,7 +1714,7 @@ class FlowMarkPrim {
         ctx.beginPath(); ctx.arc(ex, yy, 7 * hr, 0, 7);
         ctx.fillStyle = col; ctx.globalAlpha = 0.95; ctx.fill(); ctx.globalAlpha = 1;
         ctx.lineWidth = 1.4 * hr; ctx.strokeStyle = 'rgba(8,11,17,.9)'; ctx.stroke();
-        ctx.fillStyle = '#0a0d13'; ctx.textAlign = 'center';
+        ctx.fillStyle = '#0a0d12'; ctx.textAlign = 'center';
         ctx.fillText(glyph, ex, yy + 0.5 * hr);
         ctx.textAlign = 'left'; ctx.fillStyle = col;
         ctx.fillText(`${m.side === 'buy' ? '買' : '賣'} ${f0.format(m.vol)}`, ex + 10 * hr, yy);

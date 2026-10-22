@@ -24,6 +24,7 @@ import base64
 import collections
 import datetime as dt
 import hashlib
+import hmac
 import json
 import math
 import mimetypes
@@ -58,6 +59,7 @@ MAX_COLS = 400            # heat-map columns sent to the page (snapshots are thi
 MAX_LEVEL_FRAMES = 120    # snapshots for which wall / flip lines are computed (thinned evenly above this)
 BAND = 0.05               # heat map covers price +/- 5 %
 MIN_RANGE_PTS = 40.0      # 導師分析最低參考波動範圍:預期波動帶半寬不足 20 點就補到 ±20(共 40 點)
+SESSION_TTL = 60 * 60 * 24 * 30   # 登入 session 有效期:30 天
 
 STATUS = {"bars": "none", "bars_err": ""}
 _cache_lock = threading.Lock()
@@ -2359,6 +2361,42 @@ def _log_error(path, e):
         pass
 
 
+def _session_secret(cfg):
+    """用 auth_pass 當 session 簽章的金鑰;沒設密碼就回 None(= 不啟用登入)。"""
+    pw = (cfg.get("auth_pass") or "").strip()
+    if not pw:
+        return None
+    return hashlib.sha256(("gexoflow::" + pw).encode("utf-8")).digest()
+
+
+def _make_token(user, cfg):
+    secret = _session_secret(cfg)
+    if not secret:
+        return None
+    exp = int(time.time()) + SESSION_TTL
+    payload = f"{user}:{exp}".encode("utf-8")
+    sig = hmac.new(secret, payload, hashlib.sha256).digest()
+    return base64.urlsafe_b64encode(payload).decode() + "." + base64.urlsafe_b64encode(sig).decode()
+
+
+def _check_token(token, cfg):
+    secret = _session_secret(cfg)
+    if not secret or not token:
+        return None
+    try:
+        pay, sig = token.split(".", 1)
+        payload = base64.urlsafe_b64decode(pay.encode("utf-8"))
+        expect = hmac.new(secret, payload, hashlib.sha256).digest()
+        if not hmac.compare_digest(sig.encode("utf-8"), base64.urlsafe_b64encode(expect).decode("utf-8")):
+            return None
+        user, exp = payload.decode("utf-8").rsplit(":", 1)
+        if int(exp) < time.time():
+            return None
+        return user
+    except Exception:
+        return None
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "GexWeb/1.0"
 
@@ -2373,30 +2411,56 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _cookie_value(self, name):
+        cookie = self.headers.get("Cookie", "")
+        for part in cookie.split(";"):
+            part = part.strip()
+            if part.startswith(name + "="):
+                return part[len(name) + 1:]
+        return None
+
     def _authed(self) -> bool:
-        """Basic Auth 檢查:config.json 有設定 auth_user / auth_pass 時才擋,沒設定就放行(熱讀取,免重開)。"""
+        """登入檢查:config.json 有設定 auth_user / auth_pass 時才擋,沒設定就放行(熱讀取,免重開)。
+        兩種方式都算已登入:① 舊的 Basic Auth 表頭(向後相容)② 登入後簽署的 session cookie。"""
         cfg = load_config()
         user = (cfg.get("auth_user") or "").strip()
         pw = (cfg.get("auth_pass") or "")
         if not user or not pw:
             return True
         ah = self.headers.get("Authorization", "")
-        if not ah.startswith("Basic "):
-            return False
+        if ah.startswith("Basic "):
+            try:
+                got = base64.b64decode(ah[6:]).decode("utf-8")
+            except Exception:
+                got = ""
+            if got == f"{user}:{pw}":
+                return True
+        return _check_token(self._cookie_value("gexoflow_session"), cfg) == user
+
+    def _redirect(self, loc):
+        self.send_response(302)
+        self.send_header("Location", loc)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def _serve_login(self):
         try:
-            got = base64.b64decode(ah[6:]).decode("utf-8")
-        except Exception:
-            return False
-        return got == f"{user}:{pw}"
+            with open(os.path.join(WEB_DIR, "login.html"), "rb") as f:
+                return self._send(200, f.read(), "text/html; charset=utf-8")
+        except Exception as e:
+            _log_error("/login", e)
+            return self._send(404, b"login page not found", "text/plain")
 
     def do_GET(self):
-        if not self._authed():
-            self.send_response(401)
-            self.send_header("WWW-Authenticate", 'Basic realm="GEX"')
-            self.send_header("Content-Length", "0")
-            self.end_headers()
-            return
         u = urlparse(self.path)
+        if u.path in ("/login", "/login.html"):
+            if self._authed():
+                return self._redirect("/")
+            return self._serve_login()
+        if not self._authed():
+            if u.path.startswith("/api/"):
+                return self._send(401, b'{"error":"unauthorized"}', "application/json")
+            return self._redirect("/login")
         if u.path.startswith("/api/"):
             name = u.path[5:]
             fn = ROUTES.get(name)
@@ -2429,6 +2493,33 @@ class Handler(BaseHTTPRequestHandler):
             return          # 瀏覽器在讀檔時取消連線:無害
         except Exception as e:
             _log_error(self.path, e)
+
+    def do_POST(self):
+        u = urlparse(self.path)
+        if u.path != "/api/login":
+            return self._send(405, b'{"error":"method not allowed"}', "application/json")
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+            raw = self.rfile.read(n) if n else b""
+            data = json.loads(raw.decode("utf-8") or "{}")
+        except Exception:
+            data = {}
+        cfg = load_config()
+        user = (cfg.get("auth_user") or "").strip()
+        pw = (cfg.get("auth_pass") or "")
+        ok = bool(user and pw and (data.get("user") or "") == user and (data.get("pass") or "") == pw)
+        if not ok:
+            return self._send(401, b'{"ok":false,"error":"unauthorized"}', "application/json")
+        token = _make_token(user, cfg)
+        if not token:
+            return self._send(500, b'{"ok":false,"error":"session"}', "application/json")
+        body = b'{"ok":true}'
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Set-Cookie", f"gexoflow_session={token}; Path=/; HttpOnly; Max-Age={SESSION_TTL}; SameSite=Lax")
+        self.end_headers()
+        self.wfile.write(body)
 
 
 def main():
