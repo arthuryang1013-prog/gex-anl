@@ -36,7 +36,9 @@ PRUNE_EVERY_SECS = 60          # 每 60 秒才整理一次歷史檔,避免每秒
 # 歷史檔只存「彙總數字」;掛單簿(book_bid/book_ask)與成交熱區(trades)很大,
 # 每秒都存會把檔案塞爆,而且歷史分析用不到,所以不進歷史檔(只留在 orderflow.json 最新一包)。
 HIST_KEEP = {"ts", "received_at", "idle_sec", "lag_sec", "delta", "delta_buy",
-             "delta_sell", "vol", "imb", "big", "big_vol", "sweep_buy", "sweep_sell", "spot"}
+             "delta_sell", "vol", "imb", "big", "big_vol", "sweep_buy", "sweep_sell", "spot",
+             "imb_big", "delta_tr", "vol_tr", "cvd_tr", "cvd_mbo", "pull_bid", "pull_ask",
+             "stack_bid", "stack_ask"}
 
 _hist_lock = threading.Lock()
 _state = {"last_prune": 0.0}
