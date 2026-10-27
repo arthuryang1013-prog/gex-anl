@@ -1383,6 +1383,45 @@ $('#anlySkewSrc').addEventListener('click', (e) => {
   S.anlySkewSrc = b.dataset.v; save(); syncUI(); anlyMeta(); loadAnalysis();
 });
 $('#mentorRefresh').addEventListener('click', loadThesis);
+
+/* ---- 導師日結:讀 /api/daily(評論存檔 + 程式結算的 ±40 命中統計),AI 只負責把當天串成文字 ---- */
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
+async function loadDaily(gen) {
+  const out = $('#dailyOut');
+  const day = $('#dailyDay').value, scope = $('#dailyScope').value;
+  out.textContent = gen ? '導師整理中…(會呼叫一次 AI)' : '讀取中…';
+  try {
+    const q = { scope }; if (day) q.day = day; if (gen) q.gen = '1';
+    const r = await api('daily', q);
+    if (!r.ok) { out.textContent = r.error || '沒有資料'; return; }
+    if (!day) $('#dailyDay').value = r.day;
+    const S = r.stats, T = S.thesis;
+    const row = (name, g) => g && g.n ? `<tr><td>${name}</td><td>${g.n}</td><td>${g.hit}</td><td>${g.miss}</td><td>${g.timeout}</td><td>${g.both}</td><td><b>${g.rate == null ? '—' : g.rate + '%'}</b></td></tr>` : '';
+    let h = `<div class="dlyHead">${esc(r.day)} · 存下 ${r.n} 則(自動結論 ${r.n_thesis}、待結算 ${r.pending}) · 判定 ±${r.X} 點 / ${r.hold} 分鐘 · 損益兩平命中率約 ${S.breakeven}%</div>`;
+    h += '<table class="dlyTbl"><tr><th>組別</th><th>則數</th><th>命中</th><th>未命中</th><th>逾時</th><th>同棒</th><th>命中率*</th></tr>'
+      + row('導師(舊總分方向)', T) + row('　其中偏多', S.long) + row('　其中偏空', S.short)
+      + row('方向分數(不含gamma)', S.split_dir) + row('　同批舊總分', S.legacy_same_rows)
+      + row('基準:永遠做多', S.always_long) + row('基準:永遠做空', S.always_short)
+      + Object.entries(S.by_regime || {}).map(([k, g]) => row('環境:' + k, g)).join('') + '</table>';
+    h += '<div class="dlyNote">*命中率 = 命中 ÷ (命中+未命中);逾時、同棒不計入。相鄰評論的 30 分鐘窗口重疊,獨立樣本遠少於則數,單日只是描述,不是評分。</div>';
+    if (r.summary && r.summary.text) {
+      const t = esc(r.summary.text).replace(/#(\d+)/g, '<a href="#dly$1" class="dlyLink">#$1</a>').replace(/\n/g, '<br>');
+      h += `<div class="dlySum">${t}<div class="dlyNote">${r.summary.ai ? 'AI 依上方程式判定的事實整理' : '規則版文字(沒有 AI)'} · 存檔時 ${r.summary.n_comments} 則</div></div>`;
+    }
+    h += '<div class="dlyTl">' + r.timeline.map((x) => {
+      const cls = x.verdict === '命中' ? 'ok' : x.verdict === '未命中' ? 'bad' : '';
+      const head = x.kind === 'ask' ? `問:${esc(x.question || '')}` : `${esc(x.direction)} ${x.score > 0 ? '+' : ''}${x.score}` + (x.score_dir != null ? `(方向 ${x.score_dir > 0 ? '+' : ''}${x.score_dir})` : '') + ` · ${esc(x.regime || '')}`;
+      const res = x.kind === 'ask' ? '' : `<span class="dlyV ${cls}">${esc(x.verdict)}${x.mfe != null ? ` · 順 ${x.mfe}/逆 ${x.mae}` : ''}</span>`;
+      return `<details class="dlyItem" id="dly${x.id}"><summary><b>#${x.id}</b> 台北 ${x.tw} · NQ ${x.spot != null ? Math.round(x.spot) : '—'} · ${head} ${res}</summary><div class="dlyText">${esc(x.text).replace(/\n/g, '<br>')}</div></details>`;
+    }).join('') + '</div>';
+    out.innerHTML = h;
+    out.querySelectorAll('.dlyLink').forEach((a) => a.addEventListener('click', (e) => {
+      e.preventDefault(); const el = document.getElementById(a.getAttribute('href').slice(1)); if (el) { el.open = true; el.scrollIntoView({ block: 'center' }); }
+    }));
+  } catch (e) { out.textContent = '讀取失敗:' + e.message; }
+}
+$('#dailyLoad').addEventListener('click', () => loadDaily(false));
+$('#dailyGen').addEventListener('click', () => loadDaily(true));
 $('#askSend').addEventListener('click', askMentor);
 $('#askInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') askMentor(); });
 

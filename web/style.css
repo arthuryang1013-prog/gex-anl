@@ -442,3 +442,19 @@ button.mkey:hover{border-color:var(--blue);color:var(--text)}
 .gfill.dn{top:50%;background:var(--dn)}
 .gfill.flat{top:calc(50% - 2px);height:4px;background:var(--muted)}
 .gname{font:600 11px/1.3 var(--sans);color:var(--muted);text-align:center}
+
+/* 導師日結 */
+.mdailyBar{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0}
+.mdailyBar input,.mdailyBar select{background:var(--bg2);color:inherit;border:1px solid var(--line);border-radius:6px;padding:4px 6px}
+.mdailyOut{font-size:12px;line-height:1.6}
+.dlyHead{color:var(--muted);margin:4px 0}
+.dlyTbl{border-collapse:collapse;width:100%;margin:6px 0}
+.dlyTbl th,.dlyTbl td{border-bottom:1px solid var(--line);padding:3px 6px;text-align:right}
+.dlyTbl th:first-child,.dlyTbl td:first-child{text-align:left}
+.dlyNote{color:var(--muted);font-size:11px;margin:4px 0}
+.dlySum{background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:8px 0;white-space:normal}
+.dlyLink{color:var(--blue)}
+.dlyItem{border-bottom:1px solid var(--line);padding:3px 0}
+.dlyItem summary{cursor:pointer}
+.dlyText{padding:6px 10px;color:var(--muted)}
+.dlyV{margin-left:6px;font-weight:600}.dlyV.ok{color:var(--up)}.dlyV.bad{color:var(--dn)}

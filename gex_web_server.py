@@ -43,6 +43,7 @@ import pandas as pd
 
 import gex_levels as GL
 import deepseek_client as DC
+import mentor_log as ML
 
 try:
     HERE = os.path.dirname(os.path.abspath(__file__))
@@ -2158,6 +2159,20 @@ def api_thesis(con, q):
 
     _thesis_save(latest, t, spot, direction, score, confidence, strength, short, flip, call_wall, put_wall, band_up, band_dn,
                  score_dir=score_dir, regime_s=regime_s)
+    # 評論存檔(永久保留,供每日總結);失敗不影響網頁
+    try:
+        ML.log_comment(
+            "thesis", t, spot, narrative, direction=direction, score=score, score_dir=score_dir,
+            regime=regime.get("label"), regime_s=regime_s, strength=strength, confidence=confidence,
+            levels=dict(flip=flip, call_wall=call_wall, put_wall=put_wall, band_up=band_up, band_dn=band_dn),
+            ai=bool(ai),
+            inputs=dict(sources={s_: per[s_]["score"] for s_ in per}, weights=weights, flow_available=bool(flow.get("available")),
+                        flow_raw=flow.get("raw"), caveat=caveat,
+                        top=[dict(n=x["name"], v=x["value"], s=x["s"], k=x.get("kind")) for x in
+                             sorted(per["NQ"]["signals"], key=lambda x: -abs(x["s"] * x["weight"]))[:6]],
+                        flow_signals=[dict(n=x["name"], v=x["value"]) for x in (flow.get("signals") or [])][:8]))
+    except Exception:
+        pass
 
     if flow.get("available"):
         disc_of = (f"訂單流(Delta/不平衡/大單/掃單)來自 Windows 端 Bookmap 真實 MBO 匯總,資料約 {int(flow['age_sec'])} 秒前"
@@ -2245,7 +2260,29 @@ def api_ask(con, q):
     if not answer:
         return dict(ok=False, error="AI 沒回應(可能 config.json 還沒填 deepseek_api_key,或網路問題)")
     overlay = _mentor_overlay(cfg, nq, answer)
+    try:
+        ML.log_comment("ask", time.time(), spot, answer, question=question, ai=True,
+                       levels=dict(flip=nq.get("flip"), call_wall=nq.get("call_wall"), put_wall=nq.get("put_wall"),
+                                   band_up=nq.get("band_up"), band_dn=nq.get("band_dn")),
+                       inputs=dict(snapshot_t=t, prompt_lines=L))
+    except Exception:
+        pass
     return dict(ok=True, t=t, spot=round(spot, 1), question=question, answer=answer, overlay=overlay)
+
+
+def api_daily(con, q):
+    """導師日結:某美東日的評論時間線 + 自動結算的 ±40 命中統計。
+    ?day=YYYY-MM-DD(預設最近一天)&scope=session|all(session = 美東 09:30–13:30)
+    &gen=1 才會呼叫一次 AI 把當天串成意識流總結(結果存檔,之後直接讀);&refresh=1 重寫。"""
+    scope = "all" if q.get("scope") == "all" else "session"
+    d = ML.daily(q.get("day") or None, scope, bars_con=con)
+    if not d.get("ok"):
+        return d
+    if q.get("gen") == "1" or q.get("refresh") == "1":
+        cfg = load_config()
+        text, ai = ML.narrative(d, lambda prompt: DC.summarize(prompt, cfg), force=(q.get("refresh") == "1"))
+        d["summary"] = dict(text=text, ai=ai, created=time.time(), n_comments=d["n"])
+    return d
 
 
 def api_speak(con, q):
@@ -2313,7 +2350,7 @@ def api_flowmark(con, q):
     return out
 
 
-ROUTES = dict(squeeze=api_squeeze, flowmom=api_flowmom, heatx=api_heat_x, book=api_book, events=api_events, history=api_history, days=api_days, heat=api_heat, net=api_net, levels=api_levels, status=api_status, bars=api_bars, dte=api_dte, net3=api_net3, band=api_band, band0=api_band0, pcr=api_pcr, skew=api_skew, flow=api_flow, thesis=api_thesis, ask=api_ask, speak=api_speak, errors=api_errors, flowmark=api_flowmark)
+ROUTES = dict(squeeze=api_squeeze, flowmom=api_flowmom, heatx=api_heat_x, book=api_book, events=api_events, history=api_history, days=api_days, heat=api_heat, net=api_net, levels=api_levels, status=api_status, bars=api_bars, dte=api_dte, net3=api_net3, band=api_band, band0=api_band0, pcr=api_pcr, skew=api_skew, flow=api_flow, thesis=api_thesis, ask=api_ask, daily=api_daily, speak=api_speak, errors=api_errors, flowmark=api_flowmark)
 
 
 # ----------------------------- IBKR 1-minute candles (optional, own process) -----------------------------

@@ -23,6 +23,8 @@ con.commit(); con.close()
 G.DB_PATH = db
 print([n for n in dir(G) if "DB" in n.upper() and n.isupper()])
 G.CACHE_PATH = d + "/web_cache.sqlite"
+import mentor_log as ML
+ML.LOG_PATH = d + "/mentor_log.sqlite"
 G.load_config = lambda: {"auto_ai_summary": False}
 G.ORDERFLOW_PATH = d + "/none.json"
 con = G.connect(db)
@@ -35,3 +37,14 @@ if r.get("ok"):
     print("score", r["score"], "dir", r["direction"], "| score_dir", r["score_dir"], r["direction_dir"], r["strength_dir"], "| regime", r["regime"])
     print([ (s["id"], s.get("kind")) for s in r["signals"]])
     c = sqlite3.connect(G.CACHE_PATH); print(c.execute("select score, score_dir, regime_s from thesis").fetchall())
+
+# ---- 評論存檔 + 日結(接在同一個合成資料庫上)----
+r2 = G.api_thesis(con, {}); r3 = G.api_thesis(con, {})        # 連呼叫兩次 → 節流只存一則
+G.DC.summarize = lambda prompt, cfg, system=None: "答:合成測試"
+a = G.api_ask(con, {"q": "測試?"})
+dd = G.api_daily(con, {"scope": "all", "day": "2026-10-22"})
+assert dd["ok"] and dd["n_thesis"] == 1 and dd["n"] == 1, (dd.get("n"), dd.get("n_thesis"))
+assert dd["timeline"][0]["regime"]
+dd = G.api_daily(con, {"scope": "all", "gen": "1", "day": "2026-10-22"})
+assert dd["summary"] and dd["summary"]["text"] == "答:合成測試" and dd["summary"]["ai"]
+print("log+daily ok")

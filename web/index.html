@@ -292,6 +292,13 @@
         <div class="msec"><h4>未來五分鐘</h4><p class="mshort" id="mShort"></p></div>
         <div class="msec"><h4>關鍵價位</h4><div class="mkeys" id="mKeys"></div></div>
         <div class="msec"><h4>細部訊號<small>NQ 來源</small></h4><div class="msigs" id="mSigs"></div></div>
+        <div class="msec" id="mDailyBox"><h4>導師日結<small>評論存檔 · 程式用 1 分 K 判定先 +40 還是先 -40</small></h4>
+          <div class="mdailyBar">
+            <input type="date" id="dailyDay"> <select id="dailyScope"><option value="session">盤中 09:30–13:30 ET</option><option value="all">全天</option></select>
+            <button class="ghost" id="dailyLoad">載入</button> <button class="ghost" id="dailyGen">請導師寫總結</button>
+          </div>
+          <div id="dailyOut" class="mdailyOut"></div>
+        </div>
         <p class="mdisclaimer" id="mDisclaimer"></p>
       </div>
     </div>
