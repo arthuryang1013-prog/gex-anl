@@ -1,3 +1,4 @@
+collector_status.json
 # ===== 金鑰(不能上傳,會外流) =====
 config.json
 
@@ -38,3 +39,6 @@ __pycache__/
 *.pyc
 .DS_Store
 .fuse_hidden*
+
+# ===== orderflow 每日完整存檔(很大,不上傳) =====
+orderflow_archive/

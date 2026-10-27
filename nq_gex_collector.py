@@ -34,11 +34,13 @@ MODEL ASSUMPTIONS
 from __future__ import annotations
 
 import datetime as dt
+import json
 import logging
 import math
 import os
 import re
 import sqlite3
+import threading
 import time
 from collections import Counter
 from zoneinfo import ZoneInfo
@@ -86,6 +88,55 @@ try:
 except NameError:
     HERE = os.getcwd()
 DB_PATH = os.path.join(HERE, "nq_gex.sqlite")
+STATUS_PATH = os.path.join(HERE, "collector_status.json")   # 網站讀這個檔,把收集器現在在做什麼顯示在圖上
+
+# ----------------------------- status file (for the web page) -----------------------------
+# phase: starting / connecting(連不上 Gateway) / connected / building(建合約清單) / pulling(抓報價) / recording(正常) / error
+# link : IBKR 與 Gateway 之間的連線狀態(ok / lost / unknown),由 IBKR 的 1100/1101/1102 訊息更新
+# A background thread rewrites the file every few seconds, so "updated" is a heartbeat even while a slow
+# IBKR call blocks the main loop; the web page treats a file that stopped updating as "collector not running".
+_st_lock = threading.Lock()
+_st = dict(phase="starting", detail="", since=time.time(), started=time.time(), pid=os.getpid(),
+           link="unknown", link_msg="", retries=0, error="", last_snapshot=None, last_ok=None)
+
+
+def _write_status_locked():
+    _st["updated"] = time.time()
+    tmp = STATUS_PATH + ".tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(_st, f, ensure_ascii=False)
+        os.replace(tmp, STATUS_PATH)
+    except Exception:
+        pass          # a status-file problem must never stop the collector
+
+
+def set_status(phase=None, detail=None, **kw):
+    with _st_lock:
+        if phase is not None and phase != _st["phase"]:
+            _st["phase"] = phase
+            _st["since"] = time.time()
+        if detail is not None:
+            _st["detail"] = detail
+        _st.update(kw)
+        _write_status_locked()
+
+
+def _status_heartbeat():
+    while True:
+        time.sleep(5)
+        with _st_lock:
+            _write_status_locked()
+
+
+def _on_ib_error(reqId, errorCode, errorString, contract=None):
+    """IBKR 的連線類訊息:1100 連線中斷 / 1101,1102 恢復 / 1300 通訊埠被關閉。其他(市場資料警告等)不管。"""
+    if errorCode == 1100:
+        set_status(link="lost", link_msg="IBKR 與 Gateway 之間斷線")
+    elif errorCode in (1101, 1102):
+        set_status(link="ok", link_msg="")
+    elif errorCode == 1300:
+        set_status(link="lost", link_msg="Gateway 的 API 通訊埠被關閉")
 
 
 # ----------------------------- math -----------------------------
@@ -254,15 +305,19 @@ class QuietFilter(logging.Filter):
 
 
 def connect(ib: IB) -> int:
+    tries = 0
     while True:
         for p in ([PORT_OVERRIDE] if PORT_OVERRIDE else PORTS_TO_TRY):
             try:
                 ib.connect(HOST, p, clientId=CLIENT_ID, readonly=True, timeout=5)
                 print(f"Connected to IBKR on port {p}")
+                set_status("connected", f"已連上 IBKR(連接埠 {p})", link="ok", link_msg="", retries=0, error="")
                 return p
             except Exception:
                 ib.disconnect()
+        tries += 1
         print(f"Could not connect on ports {PORTS_TO_TRY}. Is TWS / IB Gateway logged in with the API enabled? Retrying in 15s ...")
+        set_status("connecting", "連不上 IB Gateway:可能沒登入、被登出、或 API 沒開", retries=tries)
         time.sleep(15)
 
 
@@ -308,6 +363,7 @@ def list_contracts(ib: IB, src: str, und, sectype: str, spot: float) -> list[dic
             if not 0 <= dte <= cfg["max_dte"] or (ch.tradingClass, exp) in seen:
                 continue
             seen.add((ch.tradingClass, exp))
+            set_status("building", f"建立 {src} 合約清單(已處理 {len(seen)} 組到期日,{len(out)} 個合約)")
             if src == "NQ":
                 probe = FuturesOption(symbol="NQ", lastTradeDateOrContractMonth=exp, exchange="CME", tradingClass=ch.tradingClass)
             else:
@@ -414,6 +470,7 @@ def run_cycle(ib: IB, state: dict, con: sqlite3.Connection | None = None):
                 ib.cancelMktData(u["und"])
                 state["uni"].pop(s, None)
             try:
+                set_status("building", f"建立 {s} 合約清單")
                 state["uni"][s] = build_universe(ib, s, now)
                 state["last_good"].pop(s, None)
                 state["fresh"].add(s)
@@ -440,6 +497,7 @@ def run_cycle(ib: IB, state: dict, con: sqlite3.Connection | None = None):
     oi_last = state.setdefault("oi_last", {})
     for s in active:
         items = state["uni"][s]["items"]
+        set_status("pulling", f"抓取 {s} 報價({len(items)} 個合約)")
         # OI is a prior-day figure published ~once a day, so refresh it only every OI_REFRESH_SECS.
         # When refreshing, the slow OI pull also returns greeks+volume, so reuse it for this cycle.
         refresh = time.time() - oi_last.get(s, 0.0) >= OI_REFRESH_SECS
@@ -476,10 +534,13 @@ def one_cycle(ib: IB, con: sqlite3.Connection, state: dict, quiet: QuietFilter |
     res = run_cycle(ib, state, con)
     if res is None:
         print("No usable quotes this cycle.")
+        set_status("noquotes", "這一輪沒有可用報價(可能休市,或市場資料沒進來)")
         return None
     df, s, per_src, info = res
     ts = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
     save_snapshot(con, ts, df, s)
+    set_status("recording", f"正常 · NQ {s['spot']:,.1f} · {s['n_contracts']} 個合約 · 來源 {s['sources']}",
+               last_snapshot=ts, last_ok=time.time(), error="")
     if gex_levels is not None and EXPORT_LEVELS:
         try:
             gex_levels.maybe_export(con, ts, reexport_et=LEVELS_REEXPORT_ET)
@@ -507,6 +568,9 @@ def main():
     quiet = QuietFilter()
     logging.getLogger("ib_async.wrapper").addFilter(quiet)
     ib = IB()
+    threading.Thread(target=_status_heartbeat, daemon=True).start()
+    set_status("starting", "收集器啟動中")
+    ib.errorEvent += _on_ib_error
     connect(ib)
     ib.reqMarketDataType(MARKET_DATA_TYPE)
     state = dict(uni={}, oi_cache={}, last_good={}, fresh=set())
@@ -519,6 +583,7 @@ def main():
             try:
                 if not ib.isConnected():
                     print("Connection lost - reconnecting ...")
+                    set_status("connecting", "與 IB Gateway 的連線中斷,重新連線中", link="lost", link_msg="API 連線已中斷")
                     connect(ib)
                     ib.reqMarketDataType(MARKET_DATA_TYPE)
                     state["uni"] = {}  # tickers from the old connection are dead
@@ -527,6 +592,7 @@ def main():
                 raise
             except Exception as e:  # keep running; try again next cycle
                 print(f"!! cycle failed: {e}")
+                set_status("error", "這一輪收集失敗", error=str(e)[:200])
             ib.sleep(max(5.0, INTERVAL_SECS - (time.time() - t0)))
     except KeyboardInterrupt:
         print("\nStopped.")

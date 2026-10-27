@@ -1,0 +1,6 @@
+{
+  "auth_user": "改成你的網站帳號",
+  "auth_pass": "改成你的網站密碼",
+  "deepseek_api_key": "",
+  "orderflow_token": "用 python3 -c \"import secrets;print(secrets.token_urlsafe(32))\" 產生一串隨機字串"
+}

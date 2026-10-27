@@ -610,11 +610,34 @@ def api_levels(con, q):
 
 
 _status_cache = {}
+COLLECTOR_STATUS_PATH = os.path.join(HERE, "collector_status.json")
+COLLECTOR_DEAD_SECS = 45          # 收集器每 5 秒更新一次狀態檔;超過這麼久沒更新 = 行程已停止或卡死
+
+
+def collector_status(path=None, now=None):
+    """讀收集器寫的狀態檔,回傳給網頁。檔案不存在(舊版收集器、或還沒跑過)回 None,網頁就退回舊的判斷方式。"""
+    path = path or COLLECTOR_STATUS_PATH
+    now = time.time() if now is None else now
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            d = json.load(f)
+        upd = float(d.get("updated") or 0)
+    except Exception:
+        return None
+    age = max(0.0, now - upd)
+    out = dict(phase=str(d.get("phase") or ""), detail=str(d.get("detail") or ""),
+               since_sec=max(0.0, now - float(d.get("since") or now)), age_sec=age,
+               link=str(d.get("link") or "unknown"), link_msg=str(d.get("link_msg") or ""),
+               retries=int(d.get("retries") or 0), error=str(d.get("error") or ""),
+               last_snapshot=d.get("last_snapshot"))
+    if age > COLLECTOR_DEAD_SECS:
+        out["phase"] = "dead"
+    return out
 
 
 def api_status(con, q):
     row = con.execute("SELECT ts, spot FROM snapshots ORDER BY ts DESC LIMIT 1").fetchone()
-    out = dict(now=int(time.time()), latest=None, bars=dict(STATUS))
+    out = dict(now=int(time.time()), latest=None, bars=dict(STATUS), collector=collector_status())
     if has_table(con, "bars_meta"):
         m = dict(con.execute("SELECT k, v FROM bars_meta").fetchall())
         out["bars"] = dict(bars=m.get("state", "none"), bars_err=m.get("err", ""), contract=m.get("contract", ""))

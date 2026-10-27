@@ -1126,13 +1126,42 @@ async function pollBars() {
 }
 function showEmpty() {
   const e = $('#empty'); e.hidden = false;
-  e.innerHTML = '資料庫裡還沒有快照。<br>請先啟動收集器(start_gex.command),等第一輪完成後這裡就會出現資料。';
+  const v = D.status ? collectorView(D.status.collector) : null;
+  e.textContent = '';
+  if (v && (v.sev === 'bad' || v.sev === 'warn')) {
+    e.append('資料庫裡還沒有快照。', document.createElement('br'), '原因請看上方提示。');
+  } else {
+    e.append('資料庫裡還沒有快照。', document.createElement('br'), '請先啟動收集器(start_gex.command),等第一輪完成後這裡就會出現資料。');
+  }
 }
 function setPill(cls, text) { const p = $('#live'); p.className = 'pill ' + cls; $('span', p).textContent = text; const e = D.status && D.status.bars && D.status.bars.bars_err; p.title = e ? 'K棒來源訊息:' + e : ''; }
+const fDur = (sec) => sec < 90 ? `${Math.round(sec)} 秒` : sec < 5400 ? `${Math.round(sec / 60)} 分鐘` : `${(sec / 3600).toFixed(1)} 小時`;
+/* 收集器現在的狀況 → {sev: bad|warn|info|ok, short, text}。收集器沒有狀態檔(舊版)就回 null,退回舊的判斷。 */
+function collectorView(c) {
+  if (!c) return null;
+  const dur = fDur(c.since_sec || 0);
+  if (c.phase === 'dead') return { sev: 'bad', short: '收集器已停止', text: `收集器沒有回應(${fDur(c.age_sec || 0)}沒有更新狀態)· GEX 不會更新,請檢查伺服器上的 gex-collector 服務` };
+  if (c.phase === 'connecting') return { sev: 'bad', short: 'IBKR 未連線', text: `連不上 IBKR:Gateway 可能沒登入、被登出或 API 沒開(已 ${dur},重試 ${c.retries || 0} 次)· GEX 不會更新` };
+  if (c.link === 'lost') return { sev: 'bad', short: 'IBKR 連線中斷', text: `IBKR 連線中斷:${c.link_msg || '等待恢復'} · GEX 可能不會更新` };
+  if (c.phase === 'building') return { sev: 'warn', short: '建立清單中', text: `${c.detail} · 已 ${dur}(開盤後重建約需 20–30 分鐘)· 這段時間 GEX 暫時不會更新` };
+  if (c.phase === 'error') return { sev: 'warn', short: '本輪收集失敗', text: `本輪收集失敗:${c.error || '原因不明'}(下一輪會再試)` };
+  if (c.phase === 'starting' || c.phase === 'connected') return { sev: 'warn', short: '收集器啟動中', text: c.detail || '收集器啟動中' };
+  if (c.phase === 'noquotes') return { sev: 'info', short: '沒有報價', text: c.detail || '' };
+  return { sev: 'ok', short: '', text: c.detail || '' };
+}
+function updateBanner(v) {
+  const b = $('#sbar'); if (!b) return;
+  if (!v || (v.sev !== 'bad' && v.sev !== 'warn')) { b.hidden = true; return; }
+  b.className = 'sbar ' + v.sev; b.textContent = v.text; b.hidden = false;
+}
 function updatePill() {
-  const st = D.status; if (!st || !st.latest) { setPill('', '沒有資料'); return; }
-  const age = st.now - st.latest;
-  const txt = age < 90 ? '剛更新' : age < 3600 ? `${Math.round(age / 60)} 分鐘前` : age < 86400 ? `${(age / 3600).toFixed(1)} 小時前` : `${Math.round(age / 86400)} 天前`;
+  const st = D.status;
+  const v = st ? collectorView(st.collector) : null;
+  updateBanner(v);
+  const age = st && st.latest ? st.now - st.latest : null;
+  const txt = age == null ? '' : age < 90 ? '剛更新' : age < 3600 ? `${Math.round(age / 60)} 分鐘前` : age < 86400 ? `${(age / 3600).toFixed(1)} 小時前` : `${Math.round(age / 86400)} 天前`;
+  if (v && (v.sev === 'bad' || v.sev === 'warn')) { setPill(v.sev === 'bad' ? 'bad' : 'warn', v.short + (txt ? ` · 最新 GEX ${txt}` : '')); return; }
+  if (!st || !st.latest) { setPill('', '沒有資料'); return; }
   const bars = st.bars && st.bars.bars === 'ibkr' ? 'K棒:IBKR' : D.kind === 'candles' ? 'K棒:資料庫' : 'K棒:以快照價代替';
   if (age < 1200) setPill('live', `即時 · GEX ${txt} · ${bars}`); else setPill('warn', `GEX 資料 ${txt}(休市或收集器未執行)· ${bars}`);
 }

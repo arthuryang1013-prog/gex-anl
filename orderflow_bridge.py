@@ -19,6 +19,8 @@ from collections import deque
 # ===== 設定區(要改的只有 MAC_IP) =====
 MAC_IP = "167.99.66.102"   # ← 雲端 VPS 公網 IP
 MAC_PORT = 8899
+TOKEN = ""                 # ← 填跟 VPS config.json 的 orderflow_token 同一串(留空 = 不帶 token)
+INGEST_URL = ""            # ← 之後若改走 https(例如 Caddy 轉發),填完整網址;留空 = 用上面的 IP:埠
 SEND_EVERY = 1.0           # 每秒送一次
 WINDOW_SEC = 60.0          # 統計窗口:數字 = 最近 60 秒的累計
 TOP_N = 10                 # 訂單簿不平衡取前 10 檔
@@ -229,9 +231,11 @@ def _tick():
 def _post(pkt):
     try:
         data = json.dumps(pkt).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+        if TOKEN:
+            headers["Authorization"] = "Bearer " + TOKEN
         req = urllib.request.Request(
-            f"http://{MAC_IP}:{MAC_PORT}/", data=data,
-            headers={"Content-Type": "application/json"})
+            INGEST_URL or f"http://{MAC_IP}:{MAC_PORT}/", data=data, headers=headers)
         urllib.request.urlopen(req, timeout=1.5)
     except Exception:
         pass  # Mac 沒開或網路不通就跳過,下秒再試
