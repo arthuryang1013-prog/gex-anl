@@ -786,6 +786,7 @@ function renderThesis() {
     conf.textContent = '—'; arc.style.strokeDashoffset = '188.5';
     $('#mGaugeMark').style.left = '50%';
     $('#mMeta').textContent = T && T.error ? `讀取失敗:${T.error}` : '';
+    { const el = $('#mSplit'); if (el) el.innerHTML = ''; }
     $('#mNarrative').textContent = '正在等待最新快照…';
     $('#mSrcs').innerHTML = ''; $('#mParts').innerHTML = '';
     $('#mDealer').textContent = ''; $('#mShort').innerHTML = '';
@@ -805,6 +806,10 @@ function renderThesis() {
   arc.style.strokeDashoffset = circ * (1 - T.confidence / 100);
   arc.style.stroke = up ? 'var(--up)' : 'var(--dn)';
   $('#mGaugeMark').style.left = (50 + T.score / 2) + '%';
+  { const rg = T.regime || {}; const el = $('#mSplit');
+    if (el) el.innerHTML = T.score_dir == null ? '' :
+      `<b>拆開看</b>:方向(不含 gamma 環境)<b class="${T.direction_dir === '偏多' ? 'upc' : 'dnc'}">${T.direction_dir} ${T.score_dir > 0 ? '+' : ''}${T.score_dir}</b>`
+      + ` ｜ 環境 <b>${rg.label || '—'}</b><span class="msplitT">${rg.text || ''}</span>`; }
   $('#mMeta').innerHTML = `現價 ${fP(T.spot)} · 三市場加權 · 快照 ${mdhm(T.t)}` + (T.caveat ? ` · <b class="warn">${T.caveat}</b>` : '');
 
   const V = T.verify || {};

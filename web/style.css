@@ -264,6 +264,9 @@ table.t.flow th.sorted.up::after{content:" ↑"}
 .mconfLbl{font-size:10.5px;color:var(--dim);margin-top:2px}
 .mmeta{margin:0;font-size:12px;color:var(--muted);line-height:1.5}
 .mmeta .warn{color:var(--amber)}
+.msplit{margin:0;font-size:12px;color:var(--muted);line-height:1.5}
+.msplit .upc{color:var(--up,#26a69a)}.msplit .dnc{color:var(--dn,#ef5350)}
+.msplitT{display:block;font-size:11px;opacity:.85}
 .mverify{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 12px;background:var(--bg2);border:1px solid var(--line);border-radius:10px;font-size:12.5px}
 .mverify[hidden]{display:none}
 .mvbadge{flex:none;font:700 12px/1 var(--mono);padding:6px 10px;border-radius:8px;border:1px solid}

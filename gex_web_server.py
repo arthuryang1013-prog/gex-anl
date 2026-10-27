@@ -1246,11 +1246,12 @@ def _thesis_src(con, src, lo, t, latest, spot, snaps):
 
     signals = []
 
-    def add(sid, name, value, s, weight, text):
+    def add(sid, name, value, s, weight, text, kind="dir"):
+        # kind: "dir" = 方向訊號;"regime" = 環境訊號(gamma 正負:波動被壓住還是被放大,不是漲跌方向)
         s = _clamp(s)
         if s == 0:
             s = 0.0
-        signals.append(dict(id=sid, name=name, value=value, s=round(s, 3), weight=weight, text=text))
+        signals.append(dict(id=sid, name=name, value=value, s=round(s, 3), weight=weight, text=text, kind=kind))
 
     if ret4 is not None:
         sm = _clamp(0.6 * _clamp(ret4 / 0.015) + 0.4 * _clamp((ret1 or 0.0) / 0.004))
@@ -1266,7 +1267,7 @@ def _thesis_src(con, src, lo, t, latest, spot, snaps):
         val = f"淨GEX(含0DTE) {_fnum(net_all)}M"
         if flip is not None:
             val += f" · 現價{'高於' if spot > flip else '低於'} flip {_fnum(flip)}"
-        add("gma", "Gamma 環境", val, ge, 2, "正 Gamma(現價在 flip 之上、淨GEX為正)= 盤勢較穩、易均值回歸;負 Gamma = 波動放大。改含 0DTE,反映當下真實的 gamma 環境。")
+        add("gma", "Gamma 環境", val, ge, 2, "正 Gamma(現價在 flip 之上、淨GEX為正)= 盤勢較穩、易均值回歸;負 Gamma = 波動放大。改含 0DTE,反映當下真實的 gamma 環境。", kind="regime")
     if net_zero is not None or flip0 is not None:
         gs0 = []
         if net_zero is not None:
@@ -1277,7 +1278,7 @@ def _thesis_src(con, src, lo, t, latest, spot, snaps):
         val0 = f"0DTE 淨GEX {_fnum(net_zero)}M"
         if flip0 is not None:
             val0 += f" · 現價{'高於' if spot > flip0 else '低於'} 0DTE flip {_fnum(flip0)}"
-        add("gma0", "0DTE Gamma", val0, ge0, 2, "0DTE 是日內主導力量:0DTE 正 gamma = 易被釘價、區間震;0DTE 負 gamma = 接近/穿越 flip 時波動放大。")
+        add("gma0", "0DTE Gamma", val0, ge0, 2, "0DTE 是日內主導力量:0DTE 正 gamma = 易被釘價、區間震;0DTE 負 gamma = 接近/穿越 flip 時波動放大。", kind="regime")
     if pcr_vol is not None:
         add("pcr", "Put/Call 比", f"成交量 P/C = {pcr_vol}", _clamp((1.0 - pcr_vol) / 0.5), 2, ">1 表示 Put 較熱 = 避險買盤較強(偏空);<1 表示 Call 較熱(偏多)。成交量只看「熱度比例」,不含買賣方向。")
     if pcr_vol0 is not None:
@@ -1301,7 +1302,12 @@ def _thesis_src(con, src, lo, t, latest, spot, snaps):
     if signals:
         tw = sum(x["weight"] for x in signals)
         raw = sum(x["s"] * x["weight"] for x in signals) / tw
-    return raw, signals, dict(ret1=ret1, ret4=ret4, net_all=net_all, net_ex0=net_ex0, net_zero=net_zero,
+    # 拆開:方向分數(不含 gamma 環境訊號)與環境分數(只含 gamma 訊號)。raw 維持舊算法,供對照。
+    dsig = [x for x in signals if x.get("kind") != "regime"]
+    rsig = [x for x in signals if x.get("kind") == "regime"]
+    raw_dir = (sum(x["s"] * x["weight"] for x in dsig) / sum(x["weight"] for x in dsig)) if dsig else 0.0
+    regime_s = (sum(x["s"] * x["weight"] for x in rsig) / sum(x["weight"] for x in rsig)) if rsig else None
+    return raw, signals, dict(raw_dir=raw_dir, regime_s=regime_s, ret1=ret1, ret4=ret4, net_all=net_all, net_ex0=net_ex0, net_zero=net_zero,
                               pcr_vol=pcr_vol, pcr_vol0=pcr_vol0, sk=sk,
                               band_up=band_up, band_dn=band_dn, atm_iv=atm_iv, dte=dte, call_dv=call_dv, put_dv=put_dv,
                               flip=flip, call_wall=call_wall, put_wall=put_wall,
@@ -1979,6 +1985,14 @@ _THESIS_KEYS = ("ts", "t", "spot", "direction", "score", "confidence", "strength
                 "flip", "call_wall", "put_wall", "band_up", "band_dn", "created")
 
 
+def _thesis_migrate(c):
+    """舊表補上新欄位(方向分數、環境分數)。舊紀錄這兩欄為 NULL。"""
+    cols = {r[1] for r in c.execute("PRAGMA table_info(thesis)")}
+    for name, typ in (("score_dir", "INTEGER"), ("regime_s", "REAL")):
+        if name not in cols:
+            c.execute(f"ALTER TABLE thesis ADD COLUMN {name} {typ}")
+
+
 def _thesis_read(t):
     """回傳 (上一次論點 dict 或 None, 滾動戰績 dict)。用「上一段預測當前因,驗證結果」串前因後果。"""
     with _cache_lock:
@@ -1989,6 +2003,7 @@ def _thesis_read(t):
                 confidence INTEGER, strength TEXT, short_dir TEXT, short_score INTEGER,
                 flip REAL, call_wall REAL, put_wall REAL, band_up REAL, band_dn REAL,
                 created REAL)""")
+            _thesis_migrate(c)
             rows = c.execute("SELECT ts, t, spot, direction, score, confidence, strength, short_dir, short_score, "
                              "flip, call_wall, put_wall, band_up, band_dn, created FROM thesis ORDER BY t ASC").fetchall()
         finally:
@@ -2013,14 +2028,17 @@ def _thesis_read(t):
     return prev, dict(n=hit + miss + und, hit=hit, miss=miss, undecided=und)
 
 
-def _thesis_save(ts, t, spot, direction, score, confidence, strength, short, flip, call_wall, put_wall, band_up, band_dn):
+def _thesis_save(ts, t, spot, direction, score, confidence, strength, short, flip, call_wall, put_wall, band_up, band_dn,
+                 score_dir=None, regime_s=None):
     with _cache_lock:
         c = _cache_con()
         try:
+            _thesis_migrate(c)
             c.execute("INSERT OR REPLACE INTO thesis (ts, t, spot, direction, score, confidence, strength, short_dir, short_score, flip, call_wall, put_wall, band_up, band_dn, created) "
                       "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                       (ts, t, spot, direction, score, confidence, strength, short["direction"], short["score"],
                        flip, call_wall, put_wall, band_up, band_dn, time.time()))
+            c.execute("UPDATE thesis SET score_dir=?, regime_s=? WHERE ts=?", (score_dir, regime_s, ts))
             c.commit()
         finally:
             c.close()
@@ -2055,6 +2073,22 @@ def api_thesis(con, q):
     direction = "偏多" if grand >= 0 else "偏空"
     confidence = min(90, int(round(50 + abs(grand) * 40)))
     strength = "強" if abs(grand) >= 0.5 else "中" if abs(grand) >= 0.25 else "弱"
+    # 拆開版:方向分數不含 gamma 環境訊號;環境(波動被壓住 / 被放大)另外給。總分 score 維持舊算法不變。
+    gex_dir = sum(per[s]["ctx"]["raw_dir"] * weights[s] for s in per) / tot_w if tot_w else 0.0
+    grand_dir = (gex_dir * gex_w + flow["raw"] * flow_w) if flow_w else gex_dir
+    score_dir = int(round(grand_dir * 100))
+    direction_dir = "偏多" if grand_dir >= 0 else "偏空"
+    strength_dir = "強" if abs(grand_dir) >= 0.5 else "中" if abs(grand_dir) >= 0.25 else "弱"
+    reg_vals = [(per[s]["ctx"]["regime_s"], weights[s]) for s in per if per[s]["ctx"]["regime_s"] is not None]
+    regime_s = (sum(v * w for v, w in reg_vals) / sum(w for _, w in reg_vals)) if reg_vals else None
+    if regime_s is None:
+        regime = dict(label="資料不足", s=None, text="gamma 資料不足,無法判斷環境")
+    elif regime_s >= 0.25:
+        regime = dict(label="正 gamma:壓波動", s=round(regime_s, 2), text="現價偏在 flip 之上、淨 GEX 偏正:做市商對沖傾向把價格拉回,區間震盪、突破容易失敗(慣例推論,非已驗證)")
+    elif regime_s <= -0.25:
+        regime = dict(label="負 gamma:放大波動", s=round(regime_s, 2), text="現價偏在 flip 之下、淨 GEX 偏負:對沖傾向追漲殺跌,趨勢一啟動容易加速、停損容易被掃(慣例推論,非已驗證)")
+    else:
+        regime = dict(label="環境中性/接近 flip", s=round(regime_s, 2), text="gamma 環境不明顯,接近 flip,穩定與放大兩種情況都可能")
     caveat = "三市場方向分歧、證據不足,方向僅供參考" if strength == "弱" else ""
     if flow.get("stale"):
         caveat = (caveat + ";" if caveat else "") + "orderflow 斷線或過時(Bookmap 延遲),本結論僅用 GEX 結構推測"
@@ -2122,7 +2156,8 @@ def api_thesis(con, q):
     def rnd(x, n=1):
         return None if x is None else round(float(x), n)
 
-    _thesis_save(latest, t, spot, direction, score, confidence, strength, short, flip, call_wall, put_wall, band_up, band_dn)
+    _thesis_save(latest, t, spot, direction, score, confidence, strength, short, flip, call_wall, put_wall, band_up, band_dn,
+                 score_dir=score_dir, regime_s=regime_s)
 
     if flow.get("available"):
         disc_of = (f"訂單流(Delta/不平衡/大單/掃單)來自 Windows 端 Bookmap 真實 MBO 匯總,資料約 {int(flow['age_sec'])} 秒前"
@@ -2132,6 +2167,7 @@ def api_thesis(con, q):
     else:
         disc_of = "訂單流尚未連線,本結論不含真實訂單流"
     return dict(ok=True, t=t, spot=round(spot, 1), direction=direction, score=score,
+                score_dir=score_dir, direction_dir=direction_dir, strength_dir=strength_dir, regime=regime,
                 confidence=confidence, strength=strength, caveat=caveat,
                 sources=dict((s, dict(direction=per[s]["direction"], score=per[s]["score"])) for s in per),
                 weights=dict((s, round(weights[s] * 100)) for s in weights),
