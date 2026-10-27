@@ -77,6 +77,12 @@ OI_REFRESH_SECS = 3 * 3600                 # re-pull OI at most once per 3h per 
 RETRY_INCOMPLETE = True   # one more attempt, with a longer wait, for contracts that came back incomplete
 RETRY_SETTLE_SECS = 10
 US_OPEN, US_CLOSE = dt.time(9, 30), dt.time(16, 15)
+USE_UNIVERSE_CACHE = True                  # 合約清單按「美東交易日」存成 universe_cache.json;同一天重啟收集器直接讀檔,不用重建
+CACHE_MAX_SPOT_DRIFT = 0.015               # 快取建立時的現價與現在差超過 1.5% 就不用(履約價範圍是依現價切的)
+PREBUILD_ENABLED = True                    # 開盤前預先建 QQQ/NDX 合約清單(開盤那一刻就能直接抓,不用等 20~30 分鐘)
+PREBUILD_ET = dt.time(8, 0)                # 美東幾點開始預建(台北冬令 21:00、夏令 20:00);比開盤 09:30 早 1.5 小時
+PREBUILD_RETRY_SECS = 600                  # 預建失敗後隔多久再試
+PREWARM_OI = True                          # 預建後順便抓一次未平倉量(OI),開盤第一輪就不用走慢速 OI 流程
 IGNORE_MARKET_HOURS = False               # True = poll QQQ/NDX at any time (e.g. for testing)
 EXPORT_LEVELS = True                       # after the US open write levels_today.txt (for the TradingView indicator)
 LEVELS_REEXPORT_ET = ["10:30"]              # refresh the levels at these New York times too (VOL levels are noise at 09:30); [] = first wave only
@@ -88,6 +94,7 @@ try:
 except NameError:
     HERE = os.getcwd()
 DB_PATH = os.path.join(HERE, "nq_gex.sqlite")
+CACHE_PATH = os.path.join(HERE, "universe_cache.json")
 STATUS_PATH = os.path.join(HERE, "collector_status.json")   # 網站讀這個檔,把收集器現在在做什麼顯示在圖上
 
 # ----------------------------- status file (for the web page) -----------------------------
@@ -341,7 +348,7 @@ def us_options_open(now_ny: dt.datetime) -> bool:
 def make_underlying(ib: IB, src: str):
     if src == "NQ":
         details = ib.reqContractDetails(Future("NQ", exchange="CME"))
-        today_str = dt.datetime.now(NY).strftime("%Y%m%d")
+        today_str = _now_ny().strftime("%Y%m%d")
         c = sorted((d.contract for d in details if d.contract.lastTradeDateOrContractMonth[:8] >= today_str),
                    key=lambda c: c.lastTradeDateOrContractMonth)[0]
         return c, "FUT"
@@ -354,7 +361,7 @@ def list_contracts(ib: IB, src: str, und, sectype: str, spot: float) -> list[dic
     cfg = SRC[src]
     chains = ib.reqSecDefOptParams(und.symbol, "CME" if src == "NQ" else "", sectype, und.conId)
     chains = [c for c in chains if c.exchange == "CME"] if src == "NQ" else ([c for c in chains if c.exchange == "SMART"] or list(chains))
-    today = dt.datetime.now(NY).date()
+    today = _now_ny().date()
     lo, hi = spot * (1 - cfg["band"]), spot * (1 + cfg["band"])
     out, seen = [], set()
     for ch in chains:
@@ -376,7 +383,79 @@ def list_contracts(ib: IB, src: str, und, sectype: str, spot: float) -> list[dic
     return out
 
 
+# ----------------------------- contract-list cache (per New York trading date) -----------------------------
+_cache_lock = threading.Lock()
+_CONTRACT_FIELDS = ("conId", "symbol", "secType", "lastTradeDateOrContractMonth", "strike", "right", "exchange",
+                    "currency", "multiplier", "tradingClass", "localSymbol")
+
+
+def _now_ny() -> dt.datetime:
+    return dt.datetime.now(NY)
+
+
+def _items_to_json(items: list[dict]) -> list[dict]:
+    out = []
+    for it in items:
+        c = it["c"]
+        out.append(dict(c={k: getattr(c, k, None) for k in _CONTRACT_FIELDS}, src=it["src"], expiry=it["expiry"],
+                        dte=it["dte"], cls=it["cls"], exp_dt=it["exp_dt"].isoformat()))
+    return out
+
+
+def _items_from_json(rows: list[dict]) -> list[dict]:
+    out = []
+    for r in rows:
+        d = dict(r["c"])
+        kind = FuturesOption if d.pop("secType") == "FOP" else Option
+        c = kind(**{k: v for k, v in d.items() if v not in (None, "")})
+        out.append(dict(c=c, src=r["src"], expiry=r["expiry"], dte=r["dte"], cls=r["cls"],
+                        exp_dt=dt.datetime.fromisoformat(r["exp_dt"])))
+    return out
+
+
+def cache_save(src: str, day: dt.date, spot: float, items: list[dict]):
+    """把剛建好的合約清單存檔。任何錯誤都吞掉(快取只是加速,不能影響收集)。"""
+    if not USE_UNIVERSE_CACHE or not items:
+        return
+    try:
+        with _cache_lock:
+            try:
+                with open(CACHE_PATH, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+            except Exception:
+                data = {}
+            data[src] = dict(date=day.isoformat(), spot=spot, saved=time.time(), items=_items_to_json(items))
+            tmp = CACHE_PATH + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(data, f)
+            os.replace(tmp, CACHE_PATH)
+    except Exception as e:
+        print(f"[cache] save failed: {e}")
+
+
+def cache_load(src: str, day: dt.date, spot: float):
+    """同一個美東日、現價沒漂移太多的快取才回傳 items;否則 None。"""
+    if not USE_UNIVERSE_CACHE:
+        return None
+    try:
+        with _cache_lock:
+            with open(CACHE_PATH, "r", encoding="utf-8") as f:
+                e = json.load(f).get(src)
+        if not e or e.get("date") != day.isoformat() or not e.get("items"):
+            return None
+        if abs(spot / float(e["spot"]) - 1.0) > CACHE_MAX_SPOT_DRIFT:
+            print(f"[cache] {src}: price moved {abs(spot / float(e['spot']) - 1) * 100:.1f}% since the list was built, rebuilding")
+            return None
+        return _items_from_json(e["items"])
+    except FileNotFoundError:
+        return None
+    except Exception as e:
+        print(f"[cache] load failed ({e}), rebuilding")
+        return None
+
+
 def build_universe(ib: IB, src: str, now_ny: dt.datetime) -> dict:
+    t_start = time.time()
     und, sectype = make_underlying(ib, src)
     t = ib.reqMktData(und, "", False, False)  # stays subscribed (1 line) so all spots can be read at one instant
     spot = None
@@ -388,8 +467,15 @@ def build_universe(ib: IB, src: str, now_ny: dt.datetime) -> dict:
     if not spot:
         ib.cancelMktData(und)
         raise RuntimeError("no underlying price (missing subscription, or market closed)")
-    items = list_contracts(ib, src, und, sectype, spot)
-    print(f"Universe {src}: {getattr(und, 'localSymbol', '') or und.symbol} ~ {spot:,.2f}, {len(items)} option contracts in scope")
+    t_list = time.time()
+    items = cache_load(src, now_ny.date(), spot)
+    how = "from cache"
+    if items is None:
+        items = list_contracts(ib, src, und, sectype, spot)
+        cache_save(src, now_ny.date(), spot, items)
+        how = "built from IBKR"
+    print(f"Universe {src}: {getattr(und, 'localSymbol', '') or und.symbol} ~ {spot:,.2f}, {len(items)} option contracts in scope "
+          f"({how}, {time.time() - t_list:.0f}s; whole step {time.time() - t_start:.0f}s)")
     return dict(und=und, spot_t=t, items=items, date=now_ny.date())
 
 
@@ -428,13 +514,58 @@ def pull(ib: IB, items: list[dict], settle: float, oi_cache: dict, want_oi: bool
     return rows, incomplete
 
 
+def prewarm_oi(ib: IB, state: dict, src: str):
+    """預先抓一次 OI 填進 oi_cache。只有「幾乎全部合約都拿到 OI」才把 oi_last 設成現在——
+    否則開盤第一輪會誤以為 OI 是新的、結果用空的快取,整輪合約都 incomplete。"""
+    items = state["uni"][src]["items"]
+    t0 = time.time()
+    set_status("building", f"預先抓取 {src} 未平倉量(OI)")
+    pull(ib, items, SETTLE_SECS, state.setdefault("oi_cache", {}), want_oi=True)
+    have = sum(1 for it in items if (src, it["c"].conId) in state["oi_cache"])
+    cover = have / len(items) if items else 0.0
+    if cover >= 0.9:
+        state.setdefault("oi_last", {})[src] = time.time()
+    print(f"[prewarm] {src}: OI for {have}/{len(items)} contracts ({cover * 100:.0f}%) in {time.time() - t0:.0f}s"
+          + ("" if cover >= 0.9 else " - too few, the open cycle will pull OI itself"))
+
+
+def prebuild_universes(ib: IB, state: dict, now: dt.datetime):
+    """美東 08:00–09:30(週一到週五),QQQ/NDX 今天的清單還沒建就先建。每次呼叫最多建一個來源,
+    讓 NQ 的快照不會被長時間卡住。失敗會稍後重試;全程不影響原本的開盤流程(開盤時沒建好就照舊重建)。"""
+    if not PREBUILD_ENABLED or now.weekday() >= 5 or not (PREBUILD_ET <= now.time() < US_OPEN):
+        return
+    pb = state.setdefault("prebuild", {})
+    for s in ENABLED:
+        if s == "NQ":
+            continue
+        u = state["uni"].get(s)
+        if u is not None and u["date"] == now.date():
+            continue
+        if time.time() - pb.get(s, 0.0) < PREBUILD_RETRY_SECS:
+            continue
+        pb[s] = time.time()
+        try:
+            if u is not None:
+                ib.cancelMktData(u["und"])
+                state["uni"].pop(s, None)
+            set_status("building", f"開盤前預先建立 {s} 合約清單")
+            state["uni"][s] = build_universe(ib, s, now)
+            state["last_good"].pop(s, None)
+            state["fresh"].add(s)
+            if PREWARM_OI:
+                prewarm_oi(ib, state, s)
+        except Exception as e:
+            print(f"[prebuild] {s} failed ({e}); will retry in {PREBUILD_RETRY_SECS // 60} min, or build at the open as before")
+        return          # 一次只建一個來源
+
+
 def quick_nq_snapshot(ib: IB, con: sqlite3.Connection, state: dict):
     """美股開盤時 QQQ/NDX 要先重建上千檔合約清單 + 重拉 OI,整輪 20~30 分鐘。在那之前先存一筆
     「只有 NQ」的快照,讓熱圖開盤那一段不要整個空白(盤前半夜本來就都是 NQ-only,前端會自動
     carry-forward 昨天的 QQQ/NDX)。任何錯誤都靜默跳過,絕不影響主循環。"""
     try:
         u = state["uni"].get("NQ")
-        if u is None or u["date"] != dt.datetime.now(NY).date():
+        if u is None or u["date"] != _now_ny().date():
             return
         spot = price_of(u["spot_t"])
         if not spot:
@@ -444,7 +575,7 @@ def quick_nq_snapshot(ib: IB, con: sqlite3.Connection, state: dict):
         if not rows:
             return
         rows = [dict(r, stale=0) for r in rows]
-        now = dt.datetime.now(NY)
+        now = _now_ny()
         exp_by_key = {it["c"].conId: it["exp_dt"] for it in items}
         for r in rows:
             r["T"] = max((exp_by_key[r["conId"]] - now).total_seconds(), 3600) / (365 * 24 * 3600)
@@ -459,7 +590,7 @@ def quick_nq_snapshot(ib: IB, con: sqlite3.Connection, state: dict):
 # ----------------------------- one cycle -----------------------------
 def run_cycle(ib: IB, state: dict, con: sqlite3.Connection | None = None):
     """Pull every active source and compute the snapshot. Returns (df, summary, per_src, info) or None."""
-    now = dt.datetime.now(NY)
+    now = _now_ny()
     open_us = us_options_open(now)
     active = [s for s in ENABLED if s == "NQ" or open_us]
 
@@ -484,6 +615,9 @@ def run_cycle(ib: IB, state: dict, con: sqlite3.Connection | None = None):
         if s == "NQ" and con is not None and open_us and len(active) > 1:
             if any(state["uni"].get(x) is None or state["uni"].get(x)["date"] != now.date() for x in ("QQQ", "NDX")):
                 quick_nq_snapshot(ib, con, state)
+
+    if not open_us:       # 盤前:NQ 清單就緒後,順便預建 QQQ/NDX(一次一個來源,見 prebuild_universes)
+        prebuild_universes(ib, state, now)
 
     spots = {s: price_of(state["uni"][s]["spot_t"]) for s in active}   # all spots read at the same instant
     for s in [s for s in active if not spots[s]]:
@@ -587,6 +721,7 @@ def main():
                     connect(ib)
                     ib.reqMarketDataType(MARKET_DATA_TYPE)
                     state["uni"] = {}  # tickers from the old connection are dead
+                    state["prebuild"] = {}
                 one_cycle(ib, con, state, quiet)
             except KeyboardInterrupt:
                 raise
