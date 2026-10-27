@@ -13,7 +13,7 @@
 
 ## 絕對不要提交的東西(已在 .gitignore)
 
-`config.json`(金鑰)、`*.sqlite`(資料庫)、`orderflow.json`、`orderflow_history.jsonl`、`orderflow_archive/`、`collector_status.json`、`*.log`、`*.bak*`。
+`config.json`(金鑰)、`*.sqlite`(資料庫,含 `mentor_log.sqlite`)、`universe_cache.json`、`orderflow.json`、`orderflow_history.jsonl`、`orderflow_archive/`、`collector_status.json`、`*.log`、`*.bak*`。
 新增會產生資料或含秘密的檔案時,先加進 `.gitignore`。
 
 ## 架構(資料怎麼流)
@@ -42,14 +42,21 @@
 
 - 改完先 `python3 -m py_compile <檔案>`。
 - 沒有 IB Gateway 時,無法測真正的收集;用假的連線或模擬的狀態檔測邏輯,並**說明哪些是沒測到的**。
-- 分析腳本(用資料庫的歷史快照):`band_test.py`、`wgt_test.py`、`source_report.py`(含「真關卡 vs 假關卡」對照)。
+- 分析腳本(用資料庫的歷史快照):`band_test.py`、`wgt_test.py`、`source_report.py`(含「真關卡 vs 假關卡」對照)、`thesis_outcome.py`(導師分數 ±40 驗證)、`orderflow_check.py`(Delta 對帳)、`basis_check.py`(基差漂移)。
+- 自動測試在 `tests/`(假 bookmap、假 IBKR、合成資料);跑法:`python3 tests/test_xxx.py`。它們只證明邏輯,不證明真實環境表現。
 
 ## 已知問題(動手前先看)
 
-- `orderflow_bridge.py` 的訂單簿失衡 `imb` 取的是「量最大的 N 檔」,不是「離現價最近的 N 檔」,與註解不符。
-- Delta 是由 MBO 掛單事件推判主動方,未用實際成交(trades)對照過,需與 Bookmap 的 CVD 核對。
-- bridge 目前忽略 CANCEL / REPLACE 事件(看不到撤單與拉單)。
-- 導師的方向分數是人工加權,尚未用實際結果(先到 +40 還是 −40)驗證。
+以下四項已有修正(各自是獨立 patch,部署後請把這裡改成「已修」並記錄驗證結果):
+- `imb`(訂單簿失衡)原本取「量最大的 N 檔」。新版 bridge 改取離現價最近 N 檔,舊算法保留為 `imb_big` 對照。
+- Delta 原本只由 MBO 掛單事件推判。新版加 `delta_tr` / `cvd_tr`(實際成交),用 `orderflow_check.py` 對帳;**還沒有用真資料對帳過,也還沒跟 Bookmap CVD 手動核對**。
+- CANCEL / REPLACE 原本被忽略。新版統計近價(5 點內)撤單 / 加單量(`pull_*` / `stack_*`);注意被成交吃掉的委託也可能以 CANCEL 出現,無法區分。
+- 導師分數原本是人工加權且混入 gamma 環境訊號。新版另外給 `score_dir`(方向,不含 gamma)與 `regime`(環境),舊總分不變。用 `thesis_outcome.py` 驗證(先 +40 還是先 −40);**驗證結果出來前,不要宣稱任何一個分數有預測力**。
+
+仍未解決:
+- 開盤空窗:新版收集器有合約清單快取與盤前預建,但**只用假的 IBKR 連線測過邏輯**,真實耗時與盤前 OI / 報價是否可取得,要盤外實測。
+- QQQ / NDX 換算 NQ 用單一價格比例(忽略基差變動)。`basis_check.py` 可量化漂移,尚未在真資料上跑過。
+- 導師評論現在會存進 `mentor_log.sqlite`(永久保留,不要放進會被定期清理的 web_cache),日結由 `/api/daily` 產生;對錯由程式用 1 分 K 判定,AI 只負責串成文字。
 
 ## 溝通偏好
 
