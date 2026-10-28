@@ -2514,9 +2514,18 @@ def _login_blocked(ip):
         return len(recent) >= LOGIN_MAX_FAILS
 
 
-def _login_fail(ip):
+def _login_fail(ip, how="login"):
+    """記一次登入失敗,並在 journald 留一行(只有時間 + 來源 IP + 途徑,不記帳號密碼)。連續失敗達上限時另外標示已鎖定。"""
+    now = time.time()
     with _login_lock:
-        _login_fails.setdefault(ip, []).append(time.time())
+        lst = [t for t in _login_fails.get(ip, []) if now - t < LOGIN_WINDOW]
+        lst.append(now)
+        _login_fails[ip] = lst
+        n = len(lst)
+    msg = f"[login] 失敗 ip={ip} 途徑={how} 窗口內第 {n} 次"
+    if n == LOGIN_MAX_FAILS:
+        msg += f" → 暫時鎖定 {LOGIN_WINDOW // 60} 分鐘"
+    print(msg, flush=True)
 
 
 def _login_ok(ip):
@@ -2524,8 +2533,14 @@ def _login_ok(ip):
         _login_fails.pop(ip, None)
 
 
+_LOOPBACK = ("127.0.0.1", "::1", "::ffff:127.0.0.1")
+
+
 def _client_ip(headers, client_addr):
-    """取真實來源 IP:有走 nginx 時看轉發表頭,沒有就直接看連線來源。"""
+    """取來源 IP。只有連線本身來自本機(= 前面有 nginx / 隧道這類本機反向代理)時,才相信轉發表頭;
+    直接從外面連進來的請求,表頭可以被隨便偽造(每次換一個假 IP 就能繞過防暴力破解),一律不信,直接用連線來源。"""
+    if client_addr[0] not in _LOOPBACK:
+        return client_addr[0]
     xff = (headers.get("X-Forwarded-For") or "").strip()
     if xff:
         return xff.split(",")[-1].strip()   # nginx 通常把真實 IP 接在最後
@@ -2577,7 +2592,7 @@ class Handler(BaseHTTPRequestHandler):
             if got == f"{user}:{pw}":
                 _login_ok(ip)
                 return True
-            _login_fail(ip)   # 帶了 Basic 表頭但密碼錯 → 記一次失敗
+            _login_fail(ip, "basic")   # 帶了 Basic 表頭但密碼錯 → 記一次失敗
             return False
         return _check_token(self._cookie_value("gexoflow_session"), cfg) == user
 
@@ -2671,7 +2686,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._redirect("/login?e=3")
         ok = bool(user and pw and (data.get("user") or "") == user and (data.get("pass") or "") == pw)
         if not ok:
-            _login_fail(ip)
+            _login_fail(ip, "login頁")
             return self._redirect("/login?e=1")
         _login_ok(ip)
         token = _make_token(user, cfg)
