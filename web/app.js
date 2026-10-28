@@ -16,7 +16,7 @@ const SCOPE_KEY = { all: 'ALL', ex0: 'EX0', zero: 'ZERO' };
 /* ------------------------------ settings ------------------------------ */
 const DEF = { hours: 8, day: null, tz: 'Asia/Taipei', srcs: ['NQ', 'QQQ', 'NDX'], basis: 'oi', scope: 'all', lens: 'abs',
   tf: 1, bucket: 25, heat: true, lines: true, profile: true, sub: true, alpha: 85, compress: 70, follow: true, candle: 'mono',
-  heatMode: 'strike', heatSrc: 'ALL', band: true, bandW: 20, bandA: 45, wgt: { NQ: 20, QQQ: 35, NDX: 45 }, wver: 2, wnorm: true, mmarks: true, tbOpen: false, events: true, evTypes: { surge: true, touch: true, cross: true }, evSeen: 0,
+  heatMode: 'strike', heatSrc: 'ALL', band: true, bandW: 20, bandA: 45, wgt: { NQ: 20, QQQ: 35, NDX: 45 }, wver: 2, wnorm: true, mmarks: true, tbOpen: false, subH: 0, subFold: false, events: true, evTypes: { surge: true, touch: true, cross: true }, evSeen: 0,
   pal: { name: '預設', low: '#3752cd', mid: '#1c96c3', high: '#ffbc48', pos: '#2bc08b', neg: '#ff5c6c' },
   gridH: false, gridV: false, cross: 'normal', pmode: 0, auto: true, pline: true, llabels: true, stay: false, lw: 3, roff: 8, nosb: false,
   subMode: 'net', sqrib: false, emband: true, anly: 'pcr', anlyPcrBasis: 'vol', anlySkewSrc: 'NQ', anlyDivBasis: 'oi', anlyDivScope: 'all',
@@ -1086,6 +1086,30 @@ function rebuildAligned() {
   applyNet(); applySq(); applyLevels(); redraw();
 }
 
+
+/* ---- 副圖:拖曳調高度 / 收合(設定會記住) ---- */
+function applySubSize() {
+  const w = $('#subwrap'); if (!w) return;
+  w.classList.toggle('folded', !!S.subFold);
+  w.style.height = (S.subH > 0 && !S.subFold) ? S.subH + 'px' : '';
+  $('#subFold').textContent = S.subFold ? '▴' : '▾';
+}
+(() => {
+  const w = $('#subwrap'), hd = $('#subResize');
+  let y0 = 0, h0 = 0, on = false;
+  hd.addEventListener('pointerdown', (e) => { on = true; y0 = e.clientY; h0 = w.getBoundingClientRect().height; hd.setPointerCapture(e.pointerId); hd.classList.add('drag'); e.preventDefault(); });
+  hd.addEventListener('pointermove', (e) => {
+    if (!on) return;
+    const maxH = Math.max(120, ($('.stage').getBoundingClientRect().height - 200) * 0.7);
+    S.subH = Math.round(Math.min(maxH, Math.max(70, h0 + (y0 - e.clientY))));
+    applySubSize();
+  });
+  const end = () => { if (!on) return; on = false; hd.classList.remove('drag'); save(); };
+  hd.addEventListener('pointerup', end); hd.addEventListener('pointercancel', end);
+  hd.addEventListener('dblclick', () => { S.subH = 0; save(); applySubSize(); });
+  $('#subFold').addEventListener('click', () => { S.subFold = !S.subFold; save(); applySubSize(); });
+})();
+
 /* ---- 頂端摘要:現價 / 離牆與 flip 的點數 / gamma 環境 / 時間與開收盤倒數 ---- */
 const NY_TZ = 'America/New_York', TW_TZ = 'Asia/Taipei';
 function tzParts(ms, tz) {
@@ -1420,6 +1444,7 @@ function syncUI() {
   $('#candleStyle').value = S.candle; $('#alpha').value = S.alpha; $('#compress').value = S.compress; $('#follow').checked = S.follow; $('#bandW').value = S.bandW; $('#bandA').value = S.bandA;
   $('#daysel').value = S.day || '';
   $('#subwrap').classList.toggle('off', !S.sub);
+  applySubSize();
   $$('#subtabs button').forEach((b) => b.classList.toggle('on', S.subMode === b.dataset.v));
   updateLensLabels();
   $('#gridH').checked = S.gridH; $('#gridV').checked = S.gridV; $('#cross').value = S.cross; $('#pmode').value = String(S.pmode);

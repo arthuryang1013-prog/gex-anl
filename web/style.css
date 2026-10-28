@@ -506,3 +506,12 @@ button.mkey:hover{border-color:var(--blue);color:var(--text)}
 .tbsum{color:var(--mut,#8b97a8);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46vw}
 .toolbar.collapsed{padding-top:6px;padding-bottom:6px}
 @media (max-width:700px){.tbsum{display:none}}
+
+/* 副圖:可拖曳調高度、可收合 */
+.subResize{position:absolute;left:0;right:0;top:-4px;height:9px;cursor:ns-resize;z-index:6;touch-action:none}
+.subResize::after{content:"";position:absolute;left:50%;top:3px;width:44px;height:3px;border-radius:2px;margin-left:-22px;background:#3a4558;opacity:.7}
+.subResize:hover::after,.subResize.drag::after{background:#7d90a3;opacity:1}
+.subFold{position:absolute;right:8px;top:3px;z-index:7;background:none;border:0;color:var(--mut,#8b97a8);font-size:15px;cursor:pointer;padding:2px 6px;border-radius:6px}
+.subFold:hover{background:#1c2432}
+.subwrap.folded{height:30px!important;overflow:hidden}
+.subwrap.folded #subchart,.subwrap.folded .subtitle,.subwrap.folded .subResize{display:none}
