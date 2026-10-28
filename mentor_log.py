@@ -29,7 +29,7 @@ _lock = threading.Lock()
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS mentor_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  t REAL NOT NULL, kind TEXT NOT NULL,            -- kind: thesis(自動結論) / ask(問導師)
+  t REAL NOT NULL, kind TEXT NOT NULL,            -- kind: thesis(規則版自動結論) / ask(問導師) / ai(AI 導師原始數據版)
   spot REAL, direction TEXT, score INTEGER, score_dir INTEGER, regime TEXT, regime_s REAL,
   strength TEXT, confidence INTEGER,
   flip REAL, call_wall REAL, put_wall REAL, band_up REAL, band_dn REAL,
@@ -207,6 +207,7 @@ def daily(day=None, scope="session", bars_con=None, path=None):
     rows = load_day(day, scope, path)
     be = round(100.0 * (X_PTS + COST_PTS) / (2 * X_PTS), 1)
     th = [r for r in rows if r["kind"] == "thesis"]
+    ai = [r for r in rows if r["kind"] == "ai"]
     sign_dir = lambda r: ("偏多" if (r["score_dir"] or 0) >= 0 else "偏空") if r["score_dir"] is not None else None
     stats = dict(
         thesis=_group(th, lambda r: r["direction"]),
@@ -217,6 +218,11 @@ def daily(day=None, scope="session", bars_con=None, path=None):
         always_long=_group(th, lambda r: "偏多"),
         always_short=_group(th, lambda r: "偏空"),
         by_regime={},
+        ai=_group(ai, lambda r: r["direction"]),
+        ai_long=_group([r for r in ai if r["direction"] == "偏多"], lambda r: r["direction"]),
+        ai_short=_group([r for r in ai if r["direction"] == "偏空"], lambda r: r["direction"]),
+        ai_always_long=_group(ai, lambda r: "偏多"),
+        ai_always_short=_group(ai, lambda r: "偏空"),
         breakeven=be,
     )
     regs = sorted({r["regime"] for r in th if r["regime"]})
@@ -225,7 +231,14 @@ def daily(day=None, scope="session", bars_con=None, path=None):
     pending = sum(1 for r in th if not r["settled"])
     timeline = []
     for r in rows:
-        v = verdict(r["direction"], r["outcome"]) if r["kind"] == "thesis" else ("問答" if r["outcome"] is None else "問答")
+        v = verdict(r["direction"], r["outcome"]) if r["kind"] in ("thesis", "ai") else "問答"
+        extra = {}
+        if r["kind"] == "ai":
+            try:
+                iv = (json.loads(r["inputs"]) if r["inputs"] else {}).get("verdict") or {}
+            except Exception:
+                iv = {}
+            extra = dict(ai_levels=iv.get("key_levels") or [], invalid_price=iv.get("invalid_price"), one_line=iv.get("one_line"))
         txt = (r["text"] or "").strip()
         timeline.append(dict(
             id=r["id"], t=r["t"], tw=dt.datetime.fromtimestamp(r["t"], TW).strftime("%H:%M"),
@@ -233,7 +246,7 @@ def daily(day=None, scope="session", bars_con=None, path=None):
             kind=r["kind"], spot=r["spot"], direction=r["direction"], score=r["score"], score_dir=r["score_dir"],
             regime=r["regime"], strength=r["strength"], confidence=r["confidence"], question=r["question"],
             text=txt, verdict=v, outcome=r["outcome"], mfe=None if r["mfe"] is None else round(r["mfe"], 1),
-            mae=None if r["mae"] is None else round(r["mae"], 1), settled=bool(r["settled"])))
+            mae=None if r["mae"] is None else round(r["mae"], 1), settled=bool(r["settled"]), **extra))
     c = _con(path)
     try:
         s = c.execute("SELECT text, created, n_comments, ai FROM daily_summary WHERE day=?", (day,)).fetchone()
@@ -258,6 +271,10 @@ def _facts(d, limit=60):
         head = f"#{x['id']} 台北{x['tw']} NQ {x['spot']:.0f}" if x["spot"] else f"#{x['id']} 台北{x['tw']}"
         if x["kind"] == "ask":
             lines.append(f"{head} [問導師] 問:{(x['question'] or '')[:60]};答要點:{x['text'][:110]}")
+            continue
+        if x["kind"] == "ai":
+            res = ("→ " + _OUT_WORDS.get(x["outcome"], "") + f"(判定:{x['verdict']})") if x["outcome"] else "→ 尚未結算"
+            lines.append(f"{head} [AI導師] {x['direction'] or '觀望'}(信心 {x['confidence'] if x['confidence'] is not None else '—'});{(x.get('one_line') or x['text'])[:110]} {res}")
             continue
         res = ("→ " + _OUT_WORDS.get(x["outcome"], "") + f"(判定:{x['verdict']}" + (f",最大順向 {x['mfe']:.0f}/逆向 {x['mae']:.0f} 點" if x["mfe"] is not None else "") + ")") if x["outcome"] else "→ 尚未結算"
         lines.append(f"{head} {x['direction']}({x['score']:+d}),環境:{x['regime'] or '—'};{x['text'][:110]} {res}")

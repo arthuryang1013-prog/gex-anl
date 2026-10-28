@@ -68,3 +68,36 @@ def summarize(prompt: str, config: dict, system: str | None = None):
         return ((data["choices"][0]["message"]["content"]) or "").strip() or None
     except Exception:
         return None
+
+
+def chat(messages, config, max_tokens=None, timeout=None, temperature=0.3):
+    """通用對話呼叫(給資料量大的「AI 導師」用):回傳 dict(ok, text, usage, model, ms) 或 dict(ok=False, error)。
+    和 summarize() 分開,逾時與輸出上限都可調(思考模式會先用掉一部分輸出額度)。不改動 summarize() 的行為。"""
+    import time as _t
+    key = ((config or {}).get("deepseek_api_key") or "").strip()
+    if not key:
+        return dict(ok=False, error="沒有設定 deepseek_api_key")
+    base = ((config or {}).get("deepseek_base_url") or "https://api.deepseek.com").rstrip("/")
+    model = (config or {}).get("deepseek_model") or "deepseek-flash"
+    try:
+        timeout = int(timeout or (config or {}).get("ai_mentor_timeout_sec") or 240)
+    except (TypeError, ValueError):
+        timeout = 240
+    try:
+        max_tokens = int(max_tokens or (config or {}).get("ai_mentor_max_tokens") or 8000)
+    except (TypeError, ValueError):
+        max_tokens = 8000
+    body = json.dumps({"model": model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens}).encode("utf-8")
+    req = urllib.request.Request(base + "/chat/completions", data=body,
+                                 headers={"Content-Type": "application/json", "Authorization": "Bearer " + key})
+    t0 = _t.time()
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        text = ((data["choices"][0]["message"]["content"]) or "").strip()
+        if not text:
+            return dict(ok=False, error="AI 回傳空內容(可能輸出額度被思考過程用完,請調高 ai_mentor_max_tokens)")
+        return dict(ok=True, text=text, usage=data.get("usage") or {}, model=model, ms=int((_t.time() - t0) * 1000),
+                    finish=(data["choices"][0].get("finish_reason")))
+    except Exception as e:
+        return dict(ok=False, error=f"呼叫失敗:{type(e).__name__}: {e}")

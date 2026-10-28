@@ -44,6 +44,7 @@ import pandas as pd
 import gex_levels as GL
 import deepseek_client as DC
 import mentor_log as ML
+import ai_mentor as AM
 
 try:
     HERE = os.path.dirname(os.path.abspath(__file__))
@@ -2289,6 +2290,93 @@ def api_ask(con, q):
     return dict(ok=True, t=t, spot=round(spot, 1), question=question, answer=answer, overlay=overlay)
 
 
+_ai_lock = threading.Lock()
+_ai_last = [0.0]
+AI_COOLDOWN_SEC = 45
+
+
+def _of_hist_recent(secs=3700):
+    """orderflow_history.jsonl 裡最近 secs 秒的原始紀錄(每秒一筆)。讀不到回 []。"""
+    try:
+        with open(ORDERFLOW_HISTORY_PATH, "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            f.seek(max(0, size - 40_000_000))      # 只讀檔尾,避免檔案很大時整個讀進來
+            raw = f.read().decode("utf-8", "ignore").splitlines()
+    except Exception:
+        return []
+    cut = time.time() - secs
+    out = []
+    for ln in raw:
+        try:
+            r = json.loads(ln)
+        except Exception:
+            continue
+        if r.get("received_at", 0.0) >= cut:
+            out.append(r)
+    return out
+
+
+def api_ai_mentor(con, q):
+    """「AI 導師(原始數據版)」:手動觸發。只餵原始數據(不含規則版的方向/分數/flip/牆),要求 AI 自己整理並附 <verdict>,
+    存進 mentor_log(kind='ai')並由程式用 ±40 點 / 30 分鐘判對錯。有冷卻時間,避免連點多收費。"""
+    if not _ai_lock.acquire(blocking=False):
+        return dict(ok=False, error="AI 導師正在整理中,請稍等")
+    try:
+        wait = AI_COOLDOWN_SEC - (time.time() - _ai_last[0])
+        if wait > 0:
+            return dict(ok=False, error=f"剛問過,請 {int(wait) + 1} 秒後再試(避免連點重複收費)")
+        row = con.execute("SELECT ts, spot FROM snapshots ORDER BY ts DESC LIMIT 1").fetchone()
+        if not row:
+            return dict(ok=False, error="還沒有快照")
+        cfg = load_config()
+        if not (cfg.get("deepseek_api_key") or "").strip():
+            return dict(ok=False, error="config.json 還沒填 deepseek_api_key")
+        latest, spot = row[0], float(row[1])
+        now = time.time()
+        df, _spot2, carried = load_frame_cf(con, latest)
+        bars = []
+        if has_table(con, "bars"):
+            bars = [tuple(r) for r in con.execute("SELECT t,o,h,l,c,v FROM bars WHERE t >= ? ORDER BY t", (now - 7 * 3600,)).fetchall()
+                    if r[1] is not None and r[2] is not None and r[3] is not None and r[4] is not None]
+        of = _load_orderflow(cfg)
+        if of is None:
+            of_status, of_now = "沒有收到過 Bookmap 資料", None
+        elif of["available"]:
+            of_status, of_now = f"即時({int(of['age_sec'] or 0)} 秒前)", of["data"]
+        else:
+            of_status, of_now = f"已過時(最後一筆約 {int(of['age_sec'] or 0)} 秒前)或延遲過大,請謹慎引用", of["data"]
+        try:
+            big = _gex_big_prints(con, latest)
+        except Exception:
+            big = None
+        packet, st = AM.build_packet(now, spot, bars, df, carried, _of_hist_recent(), of_now, of_status, big_prints=big,
+                                     snapshot_epoch=epoch_of(latest))
+        extra = (q.get("q") or "").strip()
+        user = "【原始數據】\n" + packet + ("\n\n【交易者補充的問題/情境】\n" + extra if extra else "") + \
+               "\n\n請照規定的工作方式分析,最後附 <verdict> 判定區塊。"
+        res = DC.chat([{"role": "system", "content": AM.SYSTEM_RAW}, {"role": "user", "content": user}], cfg)
+        _ai_last[0] = time.time()
+        if not res.get("ok"):
+            return dict(ok=False, error=res.get("error") or "AI 沒回應")
+        body, verdict, err = AM.parse_verdict(res["text"])
+        cost = AM.est_cost_usd(res.get("model"), res.get("usage"))
+        direction = verdict["direction"] if verdict and verdict["direction"] in ("偏多", "偏空") else None
+        rid = None
+        try:
+            rid = ML.log_comment("ai", now, spot, body or res["text"], direction=direction,
+                                 confidence=(verdict or {}).get("confidence"), question=extra or None, ai=True,
+                                 inputs=dict(model=res.get("model"), usage=res.get("usage"), ms=res.get("ms"), finish=res.get("finish"),
+                                             packet_stats=st, verdict=verdict, parse_error=err, packet=packet))
+        except Exception:
+            pass
+        return dict(ok=True, id=rid, t=now, spot=round(spot, 1), text=body, verdict=verdict, parse_error=err, model=res.get("model"),
+                    usage=res.get("usage"), ms=res.get("ms"), cost_usd=cost, packet_stats=st, orderflow=of_status,
+                    finish=res.get("finish"))
+    finally:
+        _ai_lock.release()
+
+
 def api_daily(con, q):
     """導師日結:某美東日的評論時間線 + 自動結算的 ±40 命中統計。
     ?day=YYYY-MM-DD(預設最近一天)&scope=session|all(session = 美東 09:30–13:30)
@@ -2369,7 +2457,7 @@ def api_flowmark(con, q):
     return out
 
 
-ROUTES = dict(squeeze=api_squeeze, flowmom=api_flowmom, heatx=api_heat_x, book=api_book, events=api_events, history=api_history, days=api_days, heat=api_heat, net=api_net, levels=api_levels, status=api_status, bars=api_bars, dte=api_dte, net3=api_net3, band=api_band, band0=api_band0, pcr=api_pcr, skew=api_skew, flow=api_flow, thesis=api_thesis, ask=api_ask, daily=api_daily, speak=api_speak, errors=api_errors, flowmark=api_flowmark)
+ROUTES = dict(squeeze=api_squeeze, flowmom=api_flowmom, heatx=api_heat_x, book=api_book, events=api_events, history=api_history, days=api_days, heat=api_heat, net=api_net, levels=api_levels, status=api_status, bars=api_bars, dte=api_dte, net3=api_net3, band=api_band, band0=api_band0, pcr=api_pcr, skew=api_skew, flow=api_flow, thesis=api_thesis, ask=api_ask, aimentor=api_ai_mentor, daily=api_daily, speak=api_speak, errors=api_errors, flowmark=api_flowmark)
 
 
 # ----------------------------- IBKR 1-minute candles (optional, own process) -----------------------------
