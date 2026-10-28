@@ -493,8 +493,8 @@ candle.attachPrimitive(heatPrim);
 candle.attachPrimitive(bandPrim);
 candle.attachPrimitive(profPrim);
 candle.attachPrimitive(mentorPrim);
-/* ---- 導師情境:在最新 K 線右側畫導師目前的看法(方向箭頭 + 順向/反向 40 點判定區) ---- */
-const SCENE_X = 40, SCENE_MIN = 30;   // 跟導師驗證用的判定窗一致:±40 點 / 30 分鐘
+/* ---- AI 判定窗:畫出 AI 導師最近一次判斷(方向箭頭 + 順向/反向 40 點區 + 它說的判錯價位),從它說話的那根 K 線開始 ---- */
+const SCENE_X = 40, SCENE_MIN = 30;   // 跟驗證用的判定窗一致:±40 點 / 30 分鐘
 class ScenePrim {
   attached(p) { this.series = p.series; this.chart = p.chart; this.req = p.requestUpdate; }
   detached() {}
@@ -503,40 +503,49 @@ class ScenePrim {
   paneViews() { return this._v || (this._v = [{ zOrder: () => 'top', renderer: () => ({ draw: (t) => this.draw(t) }) }]); }
   draw(target) {
     target.useBitmapCoordinateSpace((sc) => {
-      const T = D.thesis;
-      if (!S.mscene || R.on || S.day || !T || !T.ok || !D.barT.length) return;
-      const dirUp = T.direction === '偏多', dirDn = T.direction === '偏空';
+      const A = D.ai;
+      if (!S.mscene || R.on || S.day || !A || !D.barT.length) return;
+      const dirUp = A.direction === '偏多', dirDn = A.direction === '偏空';
       if (!dirUp && !dirDn) return;
-      const spot = D.last != null ? D.last : T.spot; if (spot == null) return;
+      const spot = A.spot; if (spot == null) return;
       const ctx = sc.context, hr = sc.horizontalPixelRatio, vr = sc.verticalPixelRatio;
       const ts = this.chart.timeScale(), ser = this.series;
-      const xl = ts.timeToCoordinate(D.barT[D.barT.length - 1]); if (xl == null) return;
+      const bi = lowerIdx(D.barT, A.t); if (bi < 0) return;
+      const xl = ts.timeToCoordinate(D.barT[bi]); if (xl == null) return;
       const sp = ts.options().barSpacing || 6;
       const maxW = Math.max(0, ts.width() - xl - 8);
-      const w = Math.min(maxW, Math.max(60, SCENE_MIN / Math.max(S.tf, 1) * sp));
-      if (w < 40) return;
+      const w = Math.min(maxW, Math.max(40, SCENE_MIN / Math.max(S.tf, 1) * sp));
+      if (w < 24) return;
       const sg = dirUp ? 1 : -1, col = dirUp ? UP : DN, opp = dirUp ? DN : UP;
       const y0 = ser.priceToCoordinate(spot), yT = ser.priceToCoordinate(spot + sg * SCENE_X), yS = ser.priceToCoordinate(spot - sg * SCENE_X);
       if (y0 == null || yT == null || yS == null) return;
       const X = Math.round(xl * hr), W = Math.round(w * hr);
-      const rect = (ya, yb, c, a) => { const top = Math.min(ya, yb) * vr, hh = Math.abs(yb - ya) * vr; ctx.fillStyle = rgba(c, a); ctx.fillRect(X, top, W, hh); };
+      const rect = (ya, yb, c, a2) => { const top = Math.min(ya, yb) * vr, hh = Math.abs(yb - ya) * vr; ctx.fillStyle = rgba(c, a2); ctx.fillRect(X, top, W, hh); };
       rect(y0, yT, col, 0.16); rect(y0, yS, opp, 0.12);
       ctx.lineWidth = 1.4 * hr;
       ctx.setLineDash([]); ctx.strokeStyle = col; ctx.beginPath(); ctx.moveTo(X, yT * vr); ctx.lineTo(X + W, yT * vr); ctx.stroke();
       ctx.setLineDash([5 * hr, 4 * hr]); ctx.strokeStyle = opp; ctx.beginPath(); ctx.moveTo(X, yS * vr); ctx.lineTo(X + W, yS * vr); ctx.stroke();
+      // AI 自己說的判錯價位(不一定等於 ±40)
+      if (A.invalid != null) {
+        const yi = ser.priceToCoordinate(A.invalid);
+        if (yi != null) {
+          ctx.setLineDash([2 * hr, 3 * hr]); ctx.strokeStyle = '#ffd166'; ctx.lineWidth = 1.2 * hr;
+          ctx.beginPath(); ctx.moveTo(X, yi * vr); ctx.lineTo(X + W, yi * vr); ctx.stroke();
+          ctx.fillStyle = '#ffd166'; ctx.font = `${10.5 * hr}px ui-monospace,Menlo,monospace`; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+          ctx.fillText(`AI認錯價 ${A.invalid.toFixed(0)}`, X + 4 * hr, yi * vr - 9 * vr);
+        }
+      }
       ctx.setLineDash([]);
-      // 方向箭頭:從現價指向順向 40 點
       const ax = X + W * 0.5, ay0 = y0 * vr, ay1 = (y0 + (yT - y0) * 0.9) * vr, hs = 6 * hr;
       ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 2 * hr;
       ctx.beginPath(); ctx.moveTo(ax, ay0); ctx.lineTo(ax, ay1); ctx.stroke();
-      const tip = ay1, base = ay1 + (dirUp ? hs * 1.6 : -hs * 1.6);
-      ctx.beginPath(); ctx.moveTo(ax, tip); ctx.lineTo(ax - hs, base); ctx.lineTo(ax + hs, base); ctx.closePath(); ctx.fill();
-      // 文字
+      const base = ay1 + (dirUp ? hs * 1.6 : -hs * 1.6);
+      ctx.beginPath(); ctx.moveTo(ax, ay1); ctx.lineTo(ax - hs, base); ctx.lineTo(ax + hs, base); ctx.closePath(); ctx.fill();
       ctx.font = `${11 * hr}px ui-monospace,Menlo,monospace`; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-      ctx.fillStyle = col; ctx.fillText(`判對 ${(spot + sg * SCENE_X).toFixed(0)}`, X + 4 * hr, yT * vr + (dirUp ? 9 : -9) * vr);
-      ctx.fillStyle = opp; ctx.fillText(`判錯 ${(spot - sg * SCENE_X).toFixed(0)}`, X + 4 * hr, yS * vr + (dirUp ? -9 : 9) * vr);
-      ctx.fillStyle = 'rgba(200,210,225,.85)';
-      ctx.fillText(`導師 ${T.direction}${T.confidence != null ? ' ' + T.confidence + '%' : ''}`, X + 4 * hr, y0 * vr + (dirUp ? 14 : -14) * vr);
+      ctx.fillStyle = col; ctx.fillText(`順向 ${(spot + sg * SCENE_X).toFixed(0)}`, X + 4 * hr, yT * vr + (dirUp ? 9 : -9) * vr);
+      ctx.fillStyle = opp; ctx.fillText(`反向 ${(spot - sg * SCENE_X).toFixed(0)}`, X + 4 * hr, yS * vr + (dirUp ? -9 : 9) * vr);
+      ctx.fillStyle = 'rgba(200,210,225,.9)';
+      ctx.fillText(`AI ${A.direction}${A.confidence != null ? ' ' + A.confidence + '%' : ''} · ${hmIn(A.t, 'Asia/Taipei')}`, X + 4 * hr, y0 * vr + (dirUp ? 14 : -14) * vr);
     });
   }
 }
@@ -859,7 +868,6 @@ function renderThesis() {
   $('#mGaugeMark').style.left = (50 + T.score / 2) + '%';
   { const hl = $('#mHeadline'); if (hl) hl.textContent = T.headline || ''; }
   renderLadder($('#mLadder'), { spot: T.spot, levels: thesisLevels(T), dir: T.direction, conf: T.confidence });
-  scenePrim.redraw();
   { const rg = T.regime || {}; const el = $('#mSplit');
     if (el) el.innerHTML = T.score_dir == null ? '' :
       `<b>拆開看</b>:方向(不含 gamma 環境)<b class="${T.direction_dir === '偏多' ? 'upc' : 'dnc'}">${T.direction_dir} ${T.score_dir > 0 ? '+' : ''}${T.score_dir}</b>`
@@ -1609,8 +1617,9 @@ function renderLadder(el, spec) {
   g += `<line x1="${Xl - 8}" x2="${Xr}" y1="${ys}" y2="${ys}" stroke="#fff" stroke-width="2"/><circle cx="${Xl}" cy="${ys}" r="4" fill="#fff"/><text x="${Xl - 12}" y="${ys - 6}" text-anchor="end" fill="#fff" font-size="11" font-weight="700">現價 ${spot.toFixed(0)}</text>`;
   g += '</svg>';
   const farTxt = far.length ? `<div class="ladFar">較遠(未畫在圖上):${far.sort((a, b) => b.p - a.p).map((l) => esc(l.label) + ' ' + Math.round(l.p)).join(' · ')}</div>` : '';
-  const head = (dirUp || dirDn) ? `<div class="ladHead ${dirUp ? 'up' : 'dn'}">${dirUp ? '↑' : '↓'} ${spec.dir}${spec.conf != null ? ' · 信心 ' + spec.conf + '%' : ''}<small>箭頭方向的色塊 = 順向 ${SCENE_X} 點(判對);另一側 = 反向 ${SCENE_X} 點(判錯)· ${SCENE_MIN} 分鐘內先到者為準 · 命中率尚未驗證</small></div>` : '';
-  el.innerHTML = head + g + farTxt;
+  const head = (!spec.noHead && (dirUp || dirDn)) ? `<div class="ladHead ${dirUp ? 'up' : 'dn'}">${dirUp ? '↑' : '↓'} ${spec.dir}${spec.conf != null ? ' · 信心 ' + spec.conf + '%' : ''}<small>箭頭方向的色塊 = 順向 ${SCENE_X} 點(判對);另一側 = 反向 ${SCENE_X} 點(判錯)· ${SCENE_MIN} 分鐘內先到者為準 · 命中率尚未驗證</small></div>` : '';
+  const note = (spec.noHead && (dirUp || dirDn)) ? `<div class="ladFar">箭頭方向的色塊 = 順向 ${SCENE_X} 點(判對);另一側 = 反向 ${SCENE_X} 點(判錯)· ${SCENE_MIN} 分鐘內先到者為準 · 命中率尚未驗證</div>` : '';
+  el.innerHTML = head + g + note + farTxt;
 }
 function thesisLevels(T) {
   const kl = T.key_levels || {}, o = [];
@@ -1620,6 +1629,82 @@ function thesisLevels(T) {
   add(kl.band0_up, 'band0', '0DTE 上'); add(kl.band0_dn, 'band0', '0DTE 下');
   return o;
 }
+
+/* ---- AI 導師(原始數據版):手動觸發 → /api/aimentor;紀錄與成績來自 /api/daily(kind='ai') ---- */
+D.ai = null;
+const ROLE_KIND = { support: 'sup', resistance: 'res', pivot: 'pivot' };
+function aiLevelsOf(v) {
+  const lv = ((v && v.key_levels) || []).map((l) => ({ p: l.p, kind: ROLE_KIND[l.role] || 'pivot', label: l.label || '' }));
+  if (v && v.invalid_price != null) lv.push({ p: v.invalid_price, kind: 'inv', label: 'AI 認錯價' });
+  return lv;
+}
+function setAiFromItem(x) {   // x: {t, spot, direction, confidence, invalid, ...}
+  D.ai = x && (x.direction === '偏多' || x.direction === '偏空') ? x : null;
+  scenePrim.redraw();
+}
+function renderAiResult(r) {
+  const out = $('#aiOut'); if (!out) return;
+  const v = r.verdict;
+  const cls = v && v.direction === '偏多' ? 'up' : v && v.direction === '偏空' ? 'dn' : 'na';
+  const arrow = cls === 'up' ? '↑ ' : cls === 'dn' ? '↓ ' : '';
+  let h = '';
+  if (v) {
+    h += `<div class="aiVerdict ${cls}">${arrow}${esc(v.direction)}${v.confidence != null ? `<small>AI 自評信心 ${v.confidence}%(它自己說的,尚未驗證)</small>` : ''}</div>`;
+    if (v.one_line) h += `<div class="aiOne">${esc(v.one_line)}</div>`;
+    h += '<div id="aiLadder"></div>';
+  } else {
+    h += `<div class="aiWarn">這次回答沒有附上可解析的判定區塊(${esc(r.parse_error || '原因不明')}),所以不會被計入成績,也不會畫在圖上。以下是原文:</div>`;
+  }
+  h += `<div class="aiText">${esc(r.text || '').replace(/\n{3,}/g, '\n\n')}</div>`;
+  const u = r.usage || {};
+  h += `<div class="aiMeta">${esc(r.model || '')} · 輸入 ${u.prompt_tokens != null ? u.prompt_tokens.toLocaleString() : '?'} / 輸出 ${u.completion_tokens != null ? u.completion_tokens.toLocaleString() : '?'} tokens · ${Math.round((r.ms || 0) / 1000)} 秒${r.cost_usd != null ? ` · 約 $${r.cost_usd}(依 flash 非尖峰價估算)` : ''} · 訂單流:${esc(r.orderflow || '?')}${r.finish && r.finish !== 'stop' ? ` · <span class="aiWarn">結束原因:${esc(r.finish)}(可能被截斷)</span>` : ''}</div>`;
+  out.innerHTML = h;
+  if (v) renderLadder($('#aiLadder'), { spot: r.spot, levels: aiLevelsOf(v), dir: v.direction, conf: v.confidence, noHead: true });
+}
+async function runAiMentor() {
+  const btn = $('#aiGo'), st = $('#aiStatus');
+  btn.disabled = true; st.classList.remove('err');
+  const t0 = Date.now();
+  const tick = setInterval(() => { st.textContent = `AI 導師整理原始數據中… 已等 ${Math.round((Date.now() - t0) / 1000)} 秒(通常 30–90 秒)`; }, 1000);
+  st.textContent = 'AI 導師整理原始數據中…';
+  try {
+    const r = await api('aimentor', { q: ($('#aiQ').value || '').trim() });
+    renderAiResult(r);
+    st.textContent = `完成 · 台北 ${hmIn(r.t, 'Asia/Taipei')} · 現價 ${r.spot}`;
+    if (r.verdict) setAiFromItem({ t: r.t, spot: r.spot, direction: r.verdict.direction, confidence: r.verdict.confidence, invalid: r.verdict.invalid_price });
+    loadAiHist(); loadMentorMarks();
+  } catch (e) {
+    st.classList.add('err'); st.textContent = '失敗:' + e.message;
+  } finally { clearInterval(tick); btn.disabled = false; }
+}
+async function loadAiHist() {
+  const el = $('#aiHist'); if (!el) return;
+  try {
+    const r = await api('daily', { day: nyDayOf(Date.now() / 1000), scope: 'all' });
+    if (!r || !r.ok) { el.textContent = '今天還沒有紀錄'; return; }
+    const items = r.timeline.filter((x) => x.kind === 'ai');
+    const S2 = r.stats || {};
+    const g = S2.ai || {};
+    const line = (name, q) => q && q.n ? `${name}:${q.hit} 中 / ${q.miss} 錯(命中率 ${q.rate == null ? '—' : q.rate + '%'};逾時 ${q.timeout}、同棒 ${q.both})` : '';
+    let h = '';
+    if (items.length) {
+      h += `<div class="dlyNote">${[line('AI 導師', g), line('同一批時間點「永遠做多」', S2.ai_always_long), line('同一批「永遠做空」', S2.ai_always_short), line('規則版(盤面指標)同日', S2.thesis)].filter(Boolean).join('<br>')}<br>損益兩平命中率約 ${S2.breakeven}%。一天樣本很少,只是描述;要累積多天才有意義。</div>`;
+    }
+    h += items.slice().reverse().map((x) => {
+      const cls = x.verdict === '命中' ? 'ok' : x.verdict === '未命中' ? 'bad' : '';
+      return `<details class="dlyItem"><summary><b>#${x.id}</b> 台北 ${x.tw} · NQ ${x.spot != null ? Math.round(x.spot) : '—'} · ${esc(x.direction || '觀望')}${x.confidence != null ? ' ' + x.confidence + '%' : ''} <span class="dlyV ${cls}">${esc(x.verdict)}${x.mfe != null ? ` · 順 ${x.mfe}/逆 ${x.mae}` : ''}</span></summary><div class="dlyText">${esc(x.one_line ? x.one_line + '\n\n' : '')}${esc(x.text).replace(/\n/g, '<br>')}</div></details>`;
+    }).join('');
+    el.innerHTML = h || '今天還沒有 AI 導師的紀錄(按上面的按鈕)';
+    // 熱圖上畫最近一次(只畫 30 分鐘內的)
+    const last = items.length ? items[items.length - 1] : null;
+    if (last && Date.now() / 1000 - last.t <= 45 * 60) setAiFromItem({ t: last.t, spot: last.spot, direction: last.direction, confidence: last.confidence, invalid: last.invalid_price });
+    else setAiFromItem(null);
+  } catch (e) { el.textContent = '讀取失敗:' + e.message; }
+}
+$('#aiGo').addEventListener('click', runAiMentor);
+$('#aiQ').addEventListener('keydown', (e) => { if (e.key === 'Enter') runAiMentor(); });
+setTimeout(loadAiHist, 0);
+setInterval(() => { if (D.ai && Date.now() / 1000 - D.ai.t > 45 * 60) setAiFromItem(null); }, 60000);
 
 /* ---- 導師日結:讀 /api/daily(評論存檔 + 程式結算的 ±40 命中統計),AI 只負責把當天串成文字 ---- */
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
@@ -1638,8 +1723,9 @@ async function loadDaily(gen) {
     let h = `<div class="dlyHead">${esc(r.day)} · 存下 ${r.n} 則(自動結論 ${r.n_thesis}、待結算 ${r.pending}) · 判定 ±${r.X} 點 / ${r.hold} 分鐘 · 損益兩平命中率約 ${S.breakeven}%</div>`;
     h += hint;
     h += '<table class="dlyTbl"><tr><th>組別</th><th>則數</th><th>命中</th><th>未命中</th><th>逾時</th><th>同棒</th><th>命中率*</th></tr>'
-      + row('導師(舊總分方向)', T) + row('　其中偏多', S.long) + row('　其中偏空', S.short)
+      + row('盤面指標(規則版,舊總分方向)', T) + row('　其中偏多', S.long) + row('　其中偏空', S.short)
       + row('方向分數(不含gamma)', S.split_dir) + row('　同批舊總分', S.legacy_same_rows)
+      + row('AI 導師(原始數據版)', S.ai) + row('　其中偏多', S.ai_long) + row('　其中偏空', S.ai_short) + row('　基準:同批時間永遠做多', S.ai_always_long) + row('　基準:同批時間永遠做空', S.ai_always_short)
       + row('基準:永遠做多', S.always_long) + row('基準:永遠做空', S.always_short)
       + Object.entries(S.by_regime || {}).map(([k, g]) => row('環境:' + k, g)).join('') + '</table>';
     h += '<div class="dlyNote">*命中率 = 命中 ÷ (命中+未命中);逾時、同棒不計入。相鄰評論的 30 分鐘窗口重疊,獨立樣本遠少於則數,單日只是描述,不是評分。</div>';
@@ -1649,7 +1735,7 @@ async function loadDaily(gen) {
     }
     h += '<div class="dlyTl">' + r.timeline.map((x) => {
       const cls = x.verdict === '命中' ? 'ok' : x.verdict === '未命中' ? 'bad' : '';
-      const head = x.kind === 'ask' ? `問:${esc(x.question || '')}` : `${esc(x.direction)} ${x.score > 0 ? '+' : ''}${x.score}` + (x.score_dir != null ? `(方向 ${x.score_dir > 0 ? '+' : ''}${x.score_dir})` : '') + ` · ${esc(x.regime || '')}`;
+      const head = x.kind === 'ask' ? `問:${esc(x.question || '')}` : x.kind === 'ai' ? `AI 導師 ${esc(x.direction || '觀望')}${x.confidence != null ? ' ' + x.confidence + '%' : ''}` : `${esc(x.direction)} ${x.score > 0 ? '+' : ''}${x.score}` + (x.score_dir != null ? `(方向 ${x.score_dir > 0 ? '+' : ''}${x.score_dir})` : '') + ` · ${esc(x.regime || '')}`;
       const res = x.kind === 'ask' ? '' : `<span class="dlyV ${cls}">${esc(x.verdict)}${x.mfe != null ? ` · 順 ${x.mfe}/逆 ${x.mae}` : ''}</span>`;
       return `<details class="dlyItem" id="dly${x.id}"><summary><b>#${x.id}</b> 台北 ${x.tw} · NQ ${x.spot != null ? Math.round(x.spot) : '—'} · ${head} ${res}</summary><div class="dlyText">${esc(x.text).replace(/\n/g, '<br>')}</div></details>`;
     }).join('') + '</div>';
@@ -1678,7 +1764,7 @@ async function loadMentorMarks() {
   try {
     for (const day of days) {
       const r = await api('daily', { day, scope: 'all' });
-      if (r && r.ok) items = items.concat(r.timeline.filter((x) => x.kind === 'thesis'));
+      if (r && r.ok) items = items.concat(r.timeline.filter((x) => x.kind === 'thesis' || x.kind === 'ai'));
     }
   } catch (e) { items = []; }
   if (tok !== loadMentorMarks.tok) return;
@@ -1690,7 +1776,7 @@ async function loadMentorMarks() {
     const time = D.barT[bi];
     const long = x.direction && x.direction.indexOf('多') >= 0, short = x.direction && x.direction.indexOf('空') >= 0;
     const col = x.verdict === '命中' ? UP : x.verdict === '未命中' ? DN : '#8b97a8';
-    mk.push({ time, position: short ? 'aboveBar' : 'belowBar', shape: short ? 'arrowDown' : long ? 'arrowUp' : 'circle', color: col, text: '#' + x.id });
+    mk.push({ time, position: short ? 'aboveBar' : 'belowBar', shape: short ? 'arrowDown' : long ? 'arrowUp' : 'circle', color: col, text: (x.kind === 'ai' ? 'AI#' : '#') + x.id });
     mentorMarkItems.push({ time, x });
   }
   mk.sort((a, b) => a.time - b.time);
@@ -1707,7 +1793,7 @@ chart.subscribeClick((param) => {
   if (!el) { el = document.createElement('div'); el.id = 'mmPop'; el.className = 'mmPop'; document.body.appendChild(el); }
   el.innerHTML = '<button class="mmX" aria-label="關閉">×</button>' + hits.map(({ x }) => {
     const cls = x.verdict === '命中' ? 'ok' : x.verdict === '未命中' ? 'bad' : '';
-    return `<div class="mmItem"><b>#${x.id}</b> 台北 ${x.tw} · ${esc(x.direction)} ${x.score > 0 ? '+' : ''}${x.score} · ${esc(x.regime || '')} <span class="dlyV ${cls}">${esc(x.verdict)}${x.mfe != null ? ` · 順 ${x.mfe}/逆 ${x.mae}` : ''}</span><div class="dlyText">${esc(x.text).replace(/\n/g, '<br>')}</div></div>`;
+    return `<div class="mmItem"><b>${x.kind === 'ai' ? 'AI 導師 ' : ''}#${x.id}</b> 台北 ${x.tw} · ${esc(x.direction || '觀望')} ${x.kind === 'ai' ? (x.confidence != null ? '信心 ' + x.confidence + '%' : '') : (x.score > 0 ? '+' : '') + x.score + ' · ' + esc(x.regime || '')} <span class="dlyV ${cls}">${esc(x.verdict)}${x.mfe != null ? ` · 順 ${x.mfe}/逆 ${x.mae}` : ''}</span><div class="dlyText">${esc(x.text).replace(/\n/g, '<br>')}</div></div>`;
   }).join('');
   el.hidden = false;
   el.querySelector('.mmX').onclick = hideMentorPop;

@@ -522,3 +522,21 @@ button.mkey:hover{border-color:var(--blue);color:var(--text)}
 .ladHead small{display:block;font-weight:400;color:var(--mut,#8b97a8);font-size:11.5px;margin-top:2px}
 #askLadder{margin-top:10px}
 .ladFar{color:var(--mut,#8b97a8);font-size:11.5px;margin-top:4px}
+
+.aiCard{margin-bottom:0;border-color:#3b4a66}
+.aiHead b{font-size:17px}.aiHead small{display:block;color:var(--mut,#8b97a8);font-size:12px;margin-top:3px}
+.aiAsk{display:flex;gap:8px}
+.aiAsk input{flex:1;min-width:0;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px;color:var(--text);font-size:13px}
+.aiGo{white-space:nowrap;font-weight:700}.aiGo:disabled{opacity:.6;cursor:wait}
+.aiStatus{color:var(--mut,#8b97a8);font-size:12px}
+.aiStatus.err{color:#ff9f6b}
+.aiVerdict{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;font-size:20px;font-weight:700}
+.aiVerdict.up{color:var(--up,#2bc08b)}.aiVerdict.dn{color:var(--dn,#ff5c6c)}.aiVerdict.na{color:#c9d3e3}
+.aiVerdict small{font-size:12.5px;font-weight:400;color:var(--mut,#8b97a8)}
+.aiOne{color:var(--text);font-size:14px;margin:2px 0 6px}
+.aiText{white-space:pre-wrap;line-height:1.7;font-size:13.5px;color:var(--text)}
+.aiMeta{color:var(--mut,#8b97a8);font-size:11.5px;margin-top:6px}
+.aiWarn{color:#ff9f6b;font-size:12px}
+.ruleTag{padding:8px 10px;border:1px dashed #3a4558;border-radius:8px;color:var(--mut,#8b97a8);font-size:12px}
+.ruleTag b{color:#c9d3e3;margin-right:6px;font-size:13px}
+.aiHist .row{padding:6px 0;border-bottom:1px solid var(--line)}
