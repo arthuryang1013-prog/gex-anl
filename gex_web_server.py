@@ -2196,7 +2196,11 @@ def api_thesis(con, q):
         disc_of = "訂單流目前斷線或過時,本結論不含可信訂單流"
     else:
         disc_of = "訂單流尚未連線,本結論不含真實訂單流"
-    return dict(ok=True, t=t, spot=round(spot, 1), direction=direction, score=score,
+    _env = regime["label"] if regime["label"].startswith("環境") else "環境:" + regime["label"]
+    _dsig = [x for x in sorted(per["NQ"]["signals"], key=lambda x: -abs(x["s"] * x["weight"])) if x.get("kind") != "regime" and abs(x["s"]) > 0.05][:3]
+    headline = (f"結論:{direction}({strength})。主要依據:" + "、".join(f"{x['name']}{'偏多' if x['s'] > 0 else '偏空'}" for x in _dsig)
+                + f"。{_env}。") if _dsig else f"結論:{direction}({strength})。{_env}。"
+    return dict(ok=True, t=t, spot=round(spot, 1), direction=direction, score=score, headline=headline,
                 score_dir=score_dir, direction_dir=direction_dir, strength_dir=strength_dir, regime=regime,
                 confidence=confidence, strength=strength, caveat=caveat,
                 sources=dict((s, dict(direction=per[s]["direction"], score=per[s]["score"])) for s in per),

@@ -787,6 +787,7 @@ function renderThesis() {
     $('#mGaugeMark').style.left = '50%';
     $('#mMeta').textContent = T && T.error ? `讀取失敗:${T.error}` : '';
     { const el = $('#mSplit'); if (el) el.innerHTML = ''; }
+    { const hl = $('#mHeadline'); if (hl) hl.textContent = ''; }
     $('#mNarrative').textContent = '正在等待最新快照…';
     $('#mSrcs').innerHTML = ''; $('#mParts').innerHTML = '';
     $('#mDealer').textContent = ''; $('#mShort').innerHTML = '';
@@ -806,6 +807,7 @@ function renderThesis() {
   arc.style.strokeDashoffset = circ * (1 - T.confidence / 100);
   arc.style.stroke = up ? 'var(--up)' : 'var(--dn)';
   $('#mGaugeMark').style.left = (50 + T.score / 2) + '%';
+  { const hl = $('#mHeadline'); if (hl) hl.textContent = T.headline || ''; }
   { const rg = T.regime || {}; const el = $('#mSplit');
     if (el) el.innerHTML = T.score_dir == null ? '' :
       `<b>拆開看</b>:方向(不含 gamma 環境)<b class="${T.direction_dir === '偏多' ? 'upc' : 'dnc'}">${T.direction_dir} ${T.score_dir > 0 ? '+' : ''}${T.score_dir}</b>`
@@ -1472,6 +1474,8 @@ $('#anlySkewSrc').addEventListener('click', (e) => {
   S.anlySkewSrc = b.dataset.v; save(); syncUI(); anlyMeta(); loadAnalysis();
 });
 $('#mentorRefresh').addEventListener('click', loadThesis);
+/* 導師頁的收合區塊:點標題展開 / 收起 */
+$$('#mentorCard .msec.fold > h4').forEach((h4) => h4.addEventListener('click', () => h4.parentElement.classList.toggle('closed')));
 
 /* ---- 導師日結:讀 /api/daily(評論存檔 + 程式結算的 ±40 命中統計),AI 只負責把當天串成文字 ---- */
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
@@ -1486,7 +1490,9 @@ async function loadDaily(gen) {
     if (!day) $('#dailyDay').value = r.day;
     const S = r.stats, T = S.thesis;
     const row = (name, g) => g && g.n ? `<tr><td>${name}</td><td>${g.n}</td><td>${g.hit}</td><td>${g.miss}</td><td>${g.timeout}</td><td>${g.both}</td><td><b>${g.rate == null ? '—' : g.rate + '%'}</b></td></tr>` : '';
+    const hint = (r.n === 0 && r.n_all > 0) ? `<div class="dlyNote">這個時段內沒有評論;這一天全天另有 ${r.n_all} 則(不在你的交易時段內),把右邊改成「全天」就能看到。</div>` : '';
     let h = `<div class="dlyHead">${esc(r.day)} · 存下 ${r.n} 則(自動結論 ${r.n_thesis}、待結算 ${r.pending}) · 判定 ±${r.X} 點 / ${r.hold} 分鐘 · 損益兩平命中率約 ${S.breakeven}%</div>`;
+    h += hint;
     h += '<table class="dlyTbl"><tr><th>組別</th><th>則數</th><th>命中</th><th>未命中</th><th>逾時</th><th>同棒</th><th>命中率*</th></tr>'
       + row('導師(舊總分方向)', T) + row('　其中偏多', S.long) + row('　其中偏空', S.short)
       + row('方向分數(不含gamma)', S.split_dir) + row('　同批舊總分', S.legacy_same_rows)
@@ -1626,9 +1632,12 @@ $('#tabs').addEventListener('click', (e) => {
   $('#view-table').classList.toggle('hidden', b.dataset.tab !== 'table');
   $('#view-anly').classList.toggle('hidden', b.dataset.tab !== 'anly');
   $('#view-mentor').classList.toggle('hidden', b.dataset.tab !== 'mentor');
+  $('#view-review').classList.toggle('hidden', b.dataset.tab !== 'review');
   if (b.dataset.tab === 'table') { renderTable(); loadFlow(); }
   if (b.dataset.tab === 'anly') { anlyVis(); anlyMeta(); loadAnalysis(); setTimeout(fitAnly, 60); }
   if (b.dataset.tab === 'mentor') loadThesis();
+  if (b.dataset.tab === 'review') loadDaily(false);
+
 });
 function matrixTable(basis) {
   const price = D.last, B = basis.toUpperCase(), scopes = [['ALL', '全部'], ['EX0', '排除0DTE'], ['ZERO', '只看0DTE']];

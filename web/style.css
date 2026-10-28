@@ -474,3 +474,24 @@ button.mkey:hover{border-color:var(--blue);color:var(--text)}
 .glance .gnote{width:100%;color:var(--amber);font-size:11px}
 .pill.ok2{color:#bff0dc}.pill.ok2 i{background:var(--up)}
 @media (max-width:700px){.glance{gap:6px 12px;padding:6px 12px}.glance .gc b{font-size:13px}.glance .gc.px b{font-size:16px}.glance .gc.clk{margin-left:0;text-align:left}}
+
+/* 導師頁:結論置頂、其餘可收合;一句話理由 */
+.mheadline{margin:2px 0 10px;font-size:13px;color:var(--text);line-height:1.55}
+.msec.fold>h4{cursor:pointer;user-select:none;display:flex;align-items:baseline}
+.msec.fold>h4::before{content:'▾';display:inline-block;width:14px;color:var(--dim);font-size:11px}
+.msec.fold.closed>h4::before{content:'▸'}
+.msec.fold.closed>:not(h4){display:none}
+/* 手機寬度:標頭可換行,分頁列獨立一行可橫向捲動,避免整個頁面被撐出橫向捲軸 */
+@media (max-width:1100px){
+  .top{flex-wrap:wrap;height:auto;gap:6px 8px;padding:8px 12px}
+  .top .grow{display:none}
+  .top .tabs{order:5;width:100%;overflow-x:auto;white-space:nowrap}
+  .top .tabs button{white-space:nowrap}
+  .top .pill{padding:4px 9px;font-size:11px}
+}
+@media (max-width:700px){
+  .chips{flex-wrap:wrap}
+  .chips button{white-space:nowrap}
+  .replay{flex-wrap:wrap;height:auto;padding:6px 12px;gap:6px 10px}
+  .replay input[type=range]{flex:1 1 120px;min-width:80px}
+}

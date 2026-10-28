@@ -239,7 +239,8 @@ def daily(day=None, scope="session", bars_con=None, path=None):
         s = c.execute("SELECT text, created, n_comments, ai FROM daily_summary WHERE day=?", (day,)).fetchone()
     finally:
         c.close()
-    return dict(ok=True, day=day, scope=scope, n=len(rows), n_thesis=len(th), pending=pending, X=X_PTS, hold=HOLD_MIN,
+    n_all = len(rows) if scope == "all" else len(load_day(day, "all", path))
+    return dict(ok=True, day=day, scope=scope, n=len(rows), n_all=n_all, n_thesis=len(th), pending=pending, X=X_PTS, hold=HOLD_MIN,
                 cost=COST_PTS, stats=stats, timeline=timeline,
                 summary=dict(text=s[0], created=s[1], n_comments=s[2], ai=bool(s[3])) if s else None)
 
