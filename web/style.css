@@ -495,3 +495,7 @@ button.mkey:hover{border-color:var(--blue);color:var(--text)}
   .replay{flex-wrap:wrap;height:auto;padding:6px 12px;gap:6px 10px}
   .replay input[type=range]{flex:1 1 120px;min-width:80px}
 }
+
+.mmPop{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:60;width:min(520px,calc(100vw - 32px));max-height:50vh;overflow:auto;background:var(--panel,#121821);border:1px solid #2a3547;border-radius:10px;padding:12px 14px;box-shadow:0 8px 28px rgba(0,0,0,.5);font-size:13px}
+.mmPop .mmX{position:absolute;right:8px;top:4px;background:none;border:0;color:inherit;font-size:20px;cursor:pointer}
+.mmPop .mmItem+.mmItem{margin-top:10px;padding-top:10px;border-top:1px solid #2a3547}

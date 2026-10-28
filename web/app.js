@@ -16,7 +16,7 @@ const SCOPE_KEY = { all: 'ALL', ex0: 'EX0', zero: 'ZERO' };
 /* ------------------------------ settings ------------------------------ */
 const DEF = { hours: 8, day: null, tz: 'Asia/Taipei', srcs: ['NQ', 'QQQ', 'NDX'], basis: 'oi', scope: 'all', lens: 'abs',
   tf: 1, bucket: 25, heat: true, lines: true, profile: true, sub: true, alpha: 85, compress: 70, follow: true, candle: 'mono',
-  heatMode: 'strike', heatSrc: 'ALL', band: true, bandW: 20, bandA: 45, wgt: { NQ: 20, QQQ: 35, NDX: 45 }, wver: 2, wnorm: true, events: true, evTypes: { surge: true, touch: true, cross: true }, evSeen: 0,
+  heatMode: 'strike', heatSrc: 'ALL', band: true, bandW: 20, bandA: 45, wgt: { NQ: 20, QQQ: 35, NDX: 45 }, wver: 2, wnorm: true, mmarks: true, events: true, evTypes: { surge: true, touch: true, cross: true }, evSeen: 0,
   pal: { name: '預設', low: '#3752cd', mid: '#1c96c3', high: '#ffbc48', pos: '#2bc08b', neg: '#ff5c6c' },
   gridH: false, gridV: false, cross: 'normal', pmode: 0, auto: true, pline: true, llabels: true, stay: false, lw: 3, roff: 8, nosb: false,
   subMode: 'net', sqrib: false, emband: true, anly: 'pcr', anlyPcrBasis: 'vol', anlySkewSrc: 'NQ', anlyDivBasis: 'oi', anlyDivScope: 'all',
@@ -580,7 +580,7 @@ async function loadAll(fit) {
     D.last = D.bars.length ? D.bars[D.bars.length - 1].close : (D.status && D.status.spot) || null;
     D.cols.forEach((c) => { c.si = snapIdx(c.t); });
     D.net3 = net3;
-    applyNet(); applySq();
+    applyNet(); applySq(); loadMentorMarks();
     rebuildLineSeries();
     applyLevelsFromCache();
     if (fit) { chart.timeScale().fitContent(); }
@@ -1465,6 +1465,7 @@ $('#layers').addEventListener('click', (e) => {
   if (k === 'sub') requestAnimationFrame(() => { chart.timeScale().applyOptions({}); });
   if (k === 'events') { evPrim.redraw(); updateBell(); }
   if (k === 'sqrib' && S.sqrib) loadSq();
+  if (k === 'mmarks') loadMentorMarks();
   redraw(); updateLegend();
 });
 $('#subtabs').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setSubMode(b.dataset.v); });
@@ -1519,6 +1520,55 @@ $('#dailyLoad').addEventListener('click', () => loadDaily(false));
 $('#dailyGen').addEventListener('click', () => loadDaily(true));
 $('#askSend').addEventListener('click', askMentor);
 $('#askInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') askMentor(); });
+
+
+/* ---- 導師評論標在 K 線上:命中綠 / 未命中紅 / 逾時或待結算灰;點標記看原文 ---- */
+const nyDayOf = (t) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' }).format(new Date(t * 1000));
+const mentorMarkApi = LW.createSeriesMarkers(candle, []);
+let mentorMarkItems = [];
+async function loadMentorMarks() {
+  if (!S.mmarks || !D.bars.length) { mentorMarkItems = []; mentorMarkApi.setMarkers([]); hideMentorPop(); return; }
+  const lo = D.bars[0].time, hi = D.bars[D.bars.length - 1].time;
+  const days = [...new Set([nyDayOf(lo), nyDayOf(hi)])];
+  const tok = (loadMentorMarks.tok = (loadMentorMarks.tok || 0) + 1);
+  let items = [];
+  try {
+    for (const day of days) {
+      const r = await api('daily', { day, scope: 'all' });
+      if (r && r.ok) items = items.concat(r.timeline.filter((x) => x.kind === 'thesis'));
+    }
+  } catch (e) { items = []; }
+  if (tok !== loadMentorMarks.tok) return;
+  const mk = [];
+  mentorMarkItems = [];
+  for (const x of items) {
+    const bi = lowerIdx(D.barT, x.t);
+    if (bi < 0 || x.t < lo - 60 || x.t > hi + 3600) continue;
+    const time = D.barT[bi];
+    const long = x.direction && x.direction.indexOf('多') >= 0, short = x.direction && x.direction.indexOf('空') >= 0;
+    const col = x.verdict === '命中' ? UP : x.verdict === '未命中' ? DN : '#8b97a8';
+    mk.push({ time, position: short ? 'aboveBar' : 'belowBar', shape: short ? 'arrowDown' : long ? 'arrowUp' : 'circle', color: col, text: '#' + x.id });
+    mentorMarkItems.push({ time, x });
+  }
+  mk.sort((a, b) => a.time - b.time);
+  mentorMarkApi.setMarkers(mk);
+  window.__mm = { get items() { return mentorMarkItems; }, chart, candle, D };
+}
+function hideMentorPop() { const el = document.getElementById('mmPop'); if (el) el.hidden = true; }
+chart.subscribeClick((param) => {
+  if (!S.mmarks || !param.time || !param.point) return hideMentorPop();
+  const bt = D.barT[lowerIdx(D.barT, param.time)];
+  const hits = mentorMarkItems.filter((m) => m.time === bt);
+  if (!hits.length) return hideMentorPop();
+  let el = document.getElementById('mmPop');
+  if (!el) { el = document.createElement('div'); el.id = 'mmPop'; el.className = 'mmPop'; document.body.appendChild(el); }
+  el.innerHTML = '<button class="mmX" aria-label="關閉">×</button>' + hits.map(({ x }) => {
+    const cls = x.verdict === '命中' ? 'ok' : x.verdict === '未命中' ? 'bad' : '';
+    return `<div class="mmItem"><b>#${x.id}</b> 台北 ${x.tw} · ${esc(x.direction)} ${x.score > 0 ? '+' : ''}${x.score} · ${esc(x.regime || '')} <span class="dlyV ${cls}">${esc(x.verdict)}${x.mfe != null ? ` · 順 ${x.mfe}/逆 ${x.mae}` : ''}</span><div class="dlyText">${esc(x.text).replace(/\n/g, '<br>')}</div></div>`;
+  }).join('');
+  el.hidden = false;
+  el.querySelector('.mmX').onclick = hideMentorPop;
+});
 
 /* ---- 導師圖層:每次問導師後覆蓋重畫,舊的整組清掉(不累積) ---- */
 function clearMentorOverlay() {
