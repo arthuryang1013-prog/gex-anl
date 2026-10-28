@@ -1468,6 +1468,10 @@ $('#layers').addEventListener('click', (e) => {
   if (k === 'mmarks') loadMentorMarks();
   redraw(); updateLegend();
 });
+$('#preset').addEventListener('click', () => {
+  Object.assign(S, { hours: 2, day: null, srcs: ['WGT'], scope: 'all', tf: 1, mmarks: true, lines: true, follow: true });
+  save(); syncUI(); loadAll(true); loadAnalysis(); toast('已切到盤中模式:近 2 小時 · 加權合計 · 含 0DTE · 1 分 K');
+});
 $('#subtabs').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setSubMode(b.dataset.v); });
 $('#anlyTabs').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) setAnly(b.dataset.v); });
 $('#anlySkewSrc').addEventListener('click', (e) => {
