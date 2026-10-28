@@ -458,3 +458,19 @@ button.mkey:hover{border-color:var(--blue);color:var(--text)}
 .dlyItem summary{cursor:pointer}
 .dlyText{padding:6px 10px;color:var(--muted)}
 .dlyV{margin-left:6px;font-weight:600}.dlyV.ok{color:var(--up)}.dlyV.bad{color:var(--dn)}
+
+/* 頂端常駐摘要 + 訂單流燈 */
+.glance{display:flex;flex-wrap:wrap;align-items:stretch;gap:6px 18px;padding:7px 18px;border-bottom:1px solid var(--line);background:#0b0f15;font-size:12px;line-height:1.35}
+.glance .gc{display:flex;flex-direction:column;justify-content:center;min-width:0}
+.glance .gc small{color:var(--muted);font-size:11px;white-space:nowrap}
+.glance .gc b{font-size:15px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.glance .gc b em{font-style:normal;font-size:12px;font-weight:500;margin-left:5px;color:var(--muted)}
+.glance .gc.near b em{color:var(--amber);font-weight:700}
+.glance .gc.px b{font-size:19px}
+.glance .gc.reg b{font-size:13px}
+.glance .gc.reg.pos b{color:var(--up)}.glance .gc.reg.neg b{color:var(--dn)}
+.glance .gc.clk{margin-left:auto;text-align:right}
+.glance .gc.clk b{font-size:13px}
+.glance .gnote{width:100%;color:var(--amber);font-size:11px}
+.pill.ok2{color:#bff0dc}.pill.ok2 i{background:var(--up)}
+@media (max-width:700px){.glance{gap:6px 12px;padding:6px 12px}.glance .gc b{font-size:13px}.glance .gc.px b{font-size:16px}.glance .gc.clk{margin-left:0;text-align:left}}

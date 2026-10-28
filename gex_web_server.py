@@ -636,9 +636,24 @@ def collector_status(path=None, now=None):
     return out
 
 
+def _orderflow_status():
+    """給頁面狀態燈用的訂單流摘要:只有「有沒有在送、多久前、延遲多少」,不含任何數值訊號。"""
+    try:
+        of = _load_orderflow(load_config())
+    except Exception:
+        of = None
+    if of is None:
+        return dict(connected=False)
+    d = of["data"]
+    return dict(connected=True, available=bool(of["available"]), stale=bool(of["stale"]),
+                age_sec=None if of["age_sec"] is None else round(of["age_sec"], 1),
+                lag_sec=None if of["lag_sec"] is None else round(float(of["lag_sec"]), 1))
+
+
 def api_status(con, q):
     row = con.execute("SELECT ts, spot FROM snapshots ORDER BY ts DESC LIMIT 1").fetchone()
     out = dict(now=int(time.time()), latest=None, bars=dict(STATUS), collector=collector_status())
+    out["orderflow"] = _orderflow_status()
     if has_table(con, "bars_meta"):
         m = dict(con.execute("SELECT k, v FROM bars_meta").fetchall())
         out["bars"] = dict(bars=m.get("state", "none"), bars_err=m.get("err", ""), contract=m.get("contract", ""))

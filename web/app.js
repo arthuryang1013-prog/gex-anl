@@ -1084,13 +1084,101 @@ function rebuildAligned() {
   applyNet(); applySq(); applyLevels(); redraw();
 }
 
+/* ---- 頂端摘要:現價 / 離牆與 flip 的點數 / gamma 環境 / 時間與開收盤倒數 ---- */
+const NY_TZ = 'America/New_York', TW_TZ = 'Asia/Taipei';
+function tzParts(ms, tz) {
+  const f = new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric', weekday: 'short' });
+  const o = {}; for (const p of f.formatToParts(new Date(ms))) o[p.type] = p.value;
+  return { y: +o.year, mo: +o.month, d: +o.day, h: +o.hour, mi: +o.minute, s: +o.second, wd: o.weekday };
+}
+/* 某時區的「年月日時分」→ UTC 毫秒(自動處理夏令/冬令):反覆用該時區的牆上時間修正猜測值 */
+function zonedMs(y, mo, d, h, mi, tz) {
+  const want = Date.UTC(y, mo - 1, d, h, mi);
+  let g = want;
+  for (let i = 0; i < 3; i++) {
+    const p = tzParts(g, tz);
+    g += want - Date.UTC(p.y, p.mo - 1, p.d, p.h, p.mi, 0);
+  }
+  return g;
+}
+/* 你的交易時段 = 紐約 09:30–13:30(週一到週五;不含美股假日)。回傳 {inSession, start, end, next} */
+function sessionInfo(nowMs) {
+  const SESS_START = [9, 30], SESS_END = [13, 30];
+  const ny = tzParts(nowMs, NY_TZ);
+  const at = (d0, hm) => { const base = new Date(Date.UTC(ny.y, ny.mo - 1, ny.d + d0)); return zonedMs(base.getUTCFullYear(), base.getUTCMonth() + 1, base.getUTCDate(), hm[0], hm[1], NY_TZ); };
+  const isWk = (d0) => { const w = new Date(Date.UTC(ny.y, ny.mo - 1, ny.d + d0)).getUTCDay(); return w >= 1 && w <= 5; };
+  if (isWk(0)) {
+    const s = at(0, SESS_START), e = at(0, SESS_END);
+    if (nowMs >= s && nowMs < e) return { inSession: true, start: s, end: e };
+    if (nowMs < s) return { inSession: false, next: s };
+  }
+  for (let k = 1; k <= 7; k++) if (isWk(k)) return { inSession: false, next: at(k, SESS_START) };
+  return { inSession: false, next: null };
+}
+const pad2 = (n) => String(n).padStart(2, '0');
+const fHMS = (ms) => { const t = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(t / 3600)}:${pad2(Math.floor(t % 3600 / 60))}:${pad2(t % 60)}`; };
+const fClock = (ms, tz) => { const p = tzParts(ms, tz); return `${pad2(p.h)}:${pad2(p.mi)}`; };
+function tickClock() {
+  const el = $('#gClock'); if (!el) return;
+  const now = Date.now(), si = sessionInfo(now);
+  let line;
+  if (si.inSession) line = `<small>交易時段中(紐約 09:30–13:30)</small><b>剩 ${fHMS(si.end - now)}</b>`;
+  else if (si.next) line = `<small>距下次開盤(台北 ${fClock(si.next, TW_TZ)} · 紐約 09:30)</small><b>${fHMS(si.next - now)}</b>`;
+  else line = '<small>交易時段</small><b>—</b>';
+  el.innerHTML = line + `<small>台北 ${fClock(now, TW_TZ)} · 紐約 ${fClock(now, NY_TZ)}</small>`;
+}
+function updateGlance() {
+  const g = $('#glance'); if (!g) return;
+  const st = D.status;
+  const spot = D.last != null ? D.last : (st && st.spot);
+  if (!st || spot == null) { g.innerHTML = '<div class="gc px"><small>NQ</small><b>—</b></div><div class="gc clk" id="gClock"></div>'; tickClock(); return; }
+  const lv = (st.levels && st.levels.NQ && st.levels.NQ.OI && st.levels.NQ.OI.ALL) || {};
+  const z = (st.levels_zero && st.levels_zero.NQ && st.levels_zero.NQ.OI) || {};
+  const cell = (label, price, tip) => {
+    if (price == null) return `<div class="gc"><small>${label}</small><b>—</b></div>`;
+    const d = price - spot, near = Math.abs(d) <= 40;
+    const sign = d >= 0 ? '+' : '−';
+    return `<div class="gc${near ? ' near' : ''}" title="${tip}"><small>${label}</small><b>${fP(price)}<em>${sign}${Math.abs(Math.round(d))} 點</em></b></div>`;
+  };
+  const up = lv.call_above, dn = lv.put_below;
+  let reg = '<div class="gc reg"><small>gamma 環境</small><b>—</b></div>';
+  if (z.flip != null) {
+    const pos = spot >= z.flip;
+    reg = `<div class="gc reg ${pos ? 'pos' : 'neg'}" title="現價相對 0DTE flip 的位置。「正 gamma 傾向壓波動、負 gamma 傾向放大波動」是依 call 為正、put 為負的慣例推論,不是已驗證的事實。"><small>gamma 環境(0DTE flip 之${pos ? '上' : '下'})</small><b>${pos ? '正 gamma · 壓波動' : '負 gamma · 放大波動'}</b></div>`;
+  }
+  const nearUp = up != null && up - spot <= 40 && up - spot >= 0, nearDn = dn != null && spot - dn <= 40 && spot - dn >= 0;
+  const note = (nearUp || nearDn) ? `<div class="gnote">⚠ ${nearUp ? `上方 ${Math.round(up - spot)} 點內有 Call 牆` : ''}${nearUp && nearDn ? ';' : ''}${nearDn ? `下方 ${Math.round(spot - dn)} 點內有 Put 牆` : ''}(你的停利是 40 點)</div>` : '';
+  g.innerHTML = `<div class="gc px"><small>NQ 現價</small><b>${fP(spot)}</b></div>`
+    + cell('上方 Call 牆', up, '含 0DTE 的未平倉量算出的最近上方 Call 牆;「+N 點」是離現價的距離,40 點內會變黃。')
+    + cell('下方 Put 牆', dn, '含 0DTE 的未平倉量算出的最近下方 Put 牆;「−N 點」是離現價的距離,40 點內會變黃。')
+    + cell('Flip', lv.flip, '全部到期日的 gamma flip(未平倉量)')
+    + cell('0DTE flip', z.flip, '只看當天到期的 gamma flip')
+    + reg + '<div class="gc clk" id="gClock"></div>' + note;
+  tickClock();
+}
+/* 訂單流狀態燈(Bookmap → VPS):即時 / 延遲 / 斷線 / 未連線 */
+function updateOfPill() {
+  const p = $('#ofpill'); if (!p) return;
+  const of = D.status && D.status.orderflow;
+  if (!of) { p.hidden = true; return; }
+  p.hidden = false;
+  let cls = '', txt = '';
+  if (!of.connected) { cls = ''; txt = '訂單流 未連線'; p.title = 'VPS 還沒收到過 Bookmap 的資料(Windows 那台的 addon 沒在送)'; }
+  else if (of.available) {
+    if (of.lag_sec != null && of.lag_sec > 3) { cls = 'warn'; txt = `訂單流 停頓 ${Math.round(of.lag_sec)} 秒`; p.title = 'Bookmap 事件停頓,數字可能落後'; }
+    else { cls = 'live'; txt = `訂單流 即時 · ${Math.round(of.age_sec || 0)} 秒前`; p.title = 'Bookmap 訂單流正在送資料'; }
+  } else { cls = 'bad'; txt = `訂單流 斷線 · ${fDur(of.age_sec || 0)}前`; p.title = 'Bookmap 已停止送資料,或延遲過高;導師結論此時不含訂單流'; }
+  p.className = 'pill ' + cls; $('span', p).textContent = txt;
+}
+setInterval(tickClock, 1000);
+
 /* ---- live polling ---- */
 async function poll() {
   try {
     const st = await api('status');
     const first = !D.status;
     D.status = st;
-    updatePill();
+    updatePill(); updateOfPill(); updateGlance();
     if (!st.latest && !(st.bars && st.bars.last_t)) { showEmpty(); return; }
     if (first) {
       D.days = (await api('days')).days; fillDays();
@@ -1101,6 +1189,7 @@ async function poll() {
       if (!S.day) await loadAll(false); else renderSide();
     }
     if (!S.day) { await pollBars(); loadEvents(false); loadFlowMarks(); }
+    updateGlance();
     if (!$('#view-anly').classList.contains('hidden') && st.latest !== D.anlyTs) loadAnalysis();
     if (!$('#view-table').classList.contains('hidden') && st.latest !== D.flowTs) loadFlow();
     if (st.latest !== D.thesisTs) loadThesis();
