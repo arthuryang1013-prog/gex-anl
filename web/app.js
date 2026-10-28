@@ -16,7 +16,7 @@ const SCOPE_KEY = { all: 'ALL', ex0: 'EX0', zero: 'ZERO' };
 /* ------------------------------ settings ------------------------------ */
 const DEF = { hours: 8, day: null, tz: 'Asia/Taipei', srcs: ['NQ', 'QQQ', 'NDX'], basis: 'oi', scope: 'all', lens: 'abs',
   tf: 1, bucket: 25, heat: true, lines: true, profile: true, sub: true, alpha: 85, compress: 70, follow: true, candle: 'mono',
-  heatMode: 'strike', heatSrc: 'ALL', band: true, bandW: 20, bandA: 45, wgt: { NQ: 20, QQQ: 35, NDX: 45 }, wver: 2, wnorm: true, mmarks: true, tbOpen: false, subH: 0, subFold: false, events: true, evTypes: { surge: true, touch: true, cross: true }, evSeen: 0,
+  heatMode: 'strike', heatSrc: 'ALL', band: true, bandW: 20, bandA: 45, wgt: { NQ: 20, QQQ: 35, NDX: 45 }, wver: 2, wnorm: true, mmarks: true, mscene: true, tbOpen: false, subH: 0, subFold: false, events: true, evTypes: { surge: true, touch: true, cross: true }, evSeen: 0,
   pal: { name: '預設', low: '#3752cd', mid: '#1c96c3', high: '#ffbc48', pos: '#2bc08b', neg: '#ff5c6c' },
   gridH: false, gridV: false, cross: 'normal', pmode: 0, auto: true, pline: true, llabels: true, stay: false, lw: 3, roff: 8, nosb: false,
   subMode: 'net', sqrib: false, emband: true, anly: 'pcr', anlyPcrBasis: 'vol', anlySkewSrc: 'NQ', anlyDivBasis: 'oi', anlyDivScope: 'all',
@@ -144,12 +144,13 @@ const PRESETS = {
 };
 
 /* ------------------------------ charts ------------------------------ */
+const roffEff = () => (S.mscene ? Math.max(S.roff, Math.ceil(30 / Math.max(S.tf, 1)) + 2) : S.roff);   // 導師情境要在最新 K 線右邊留 30 分鐘的位置
 const baseOpts = () => ({
   autoSize: true,
   layout: { background: { type: 'solid', color: 'transparent' }, textColor: '#8a93a4', fontFamily: 'ui-monospace,"SF Mono",Menlo,monospace', fontSize: 11, attributionLogo: true },
   grid: { vertLines: { visible: S.gridV, color: 'rgba(255,255,255,.04)' }, horzLines: { visible: S.gridH, color: 'rgba(255,255,255,.045)' } },
   rightPriceScale: { borderVisible: false, minimumWidth: 78, scaleMargins: { top: 0.06, bottom: 0.08 } },
-  timeScale: { borderVisible: false, timeVisible: true, secondsVisible: false, rightOffset: S.roff, rightBarStaysOnScroll: S.stay, barSpacing: 7, minBarSpacing: 0.4,
+  timeScale: { borderVisible: false, timeVisible: true, secondsVisible: false, rightOffset: roffEff(), rightBarStaysOnScroll: S.stay, barSpacing: 7, minBarSpacing: 0.4,
     tickMarkFormatter: (t, type) => (type <= 2 ? md(t) : hm(t)) },
   localization: { timeFormatter: (t) => mdhm(t), priceFormatter: (p) => f2.format(p) },
   crosshair: { mode: LW.CrosshairMode.Normal,
@@ -492,7 +493,56 @@ candle.attachPrimitive(heatPrim);
 candle.attachPrimitive(bandPrim);
 candle.attachPrimitive(profPrim);
 candle.attachPrimitive(mentorPrim);
-function redraw() { heatPrim.redraw(); bandPrim.redraw(); profPrim.redraw(); embandPrim.redraw(); mentorPrim.redraw(); if (window.__flm) window.__flm.redraw(); if (window.__sqr) window.__sqr.redraw(); }
+/* ---- 導師情境:在最新 K 線右側畫導師目前的看法(方向箭頭 + 順向/反向 40 點判定區) ---- */
+const SCENE_X = 40, SCENE_MIN = 30;   // 跟導師驗證用的判定窗一致:±40 點 / 30 分鐘
+class ScenePrim {
+  attached(p) { this.series = p.series; this.chart = p.chart; this.req = p.requestUpdate; }
+  detached() {}
+  updateAllViews() {}
+  redraw() { if (this.req) this.req(); }
+  paneViews() { return this._v || (this._v = [{ zOrder: () => 'top', renderer: () => ({ draw: (t) => this.draw(t) }) }]); }
+  draw(target) {
+    target.useBitmapCoordinateSpace((sc) => {
+      const T = D.thesis;
+      if (!S.mscene || R.on || S.day || !T || !T.ok || !D.barT.length) return;
+      const dirUp = T.direction === '偏多', dirDn = T.direction === '偏空';
+      if (!dirUp && !dirDn) return;
+      const spot = D.last != null ? D.last : T.spot; if (spot == null) return;
+      const ctx = sc.context, hr = sc.horizontalPixelRatio, vr = sc.verticalPixelRatio;
+      const ts = this.chart.timeScale(), ser = this.series;
+      const xl = ts.timeToCoordinate(D.barT[D.barT.length - 1]); if (xl == null) return;
+      const sp = ts.options().barSpacing || 6;
+      const maxW = Math.max(0, ts.width() - xl - 8);
+      const w = Math.min(maxW, Math.max(60, SCENE_MIN / Math.max(S.tf, 1) * sp));
+      if (w < 40) return;
+      const sg = dirUp ? 1 : -1, col = dirUp ? UP : DN, opp = dirUp ? DN : UP;
+      const y0 = ser.priceToCoordinate(spot), yT = ser.priceToCoordinate(spot + sg * SCENE_X), yS = ser.priceToCoordinate(spot - sg * SCENE_X);
+      if (y0 == null || yT == null || yS == null) return;
+      const X = Math.round(xl * hr), W = Math.round(w * hr);
+      const rect = (ya, yb, c, a) => { const top = Math.min(ya, yb) * vr, hh = Math.abs(yb - ya) * vr; ctx.fillStyle = rgba(c, a); ctx.fillRect(X, top, W, hh); };
+      rect(y0, yT, col, 0.16); rect(y0, yS, opp, 0.12);
+      ctx.lineWidth = 1.4 * hr;
+      ctx.setLineDash([]); ctx.strokeStyle = col; ctx.beginPath(); ctx.moveTo(X, yT * vr); ctx.lineTo(X + W, yT * vr); ctx.stroke();
+      ctx.setLineDash([5 * hr, 4 * hr]); ctx.strokeStyle = opp; ctx.beginPath(); ctx.moveTo(X, yS * vr); ctx.lineTo(X + W, yS * vr); ctx.stroke();
+      ctx.setLineDash([]);
+      // 方向箭頭:從現價指向順向 40 點
+      const ax = X + W * 0.5, ay0 = y0 * vr, ay1 = (y0 + (yT - y0) * 0.9) * vr, hs = 6 * hr;
+      ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 2 * hr;
+      ctx.beginPath(); ctx.moveTo(ax, ay0); ctx.lineTo(ax, ay1); ctx.stroke();
+      const tip = ay1, base = ay1 + (dirUp ? hs * 1.6 : -hs * 1.6);
+      ctx.beginPath(); ctx.moveTo(ax, tip); ctx.lineTo(ax - hs, base); ctx.lineTo(ax + hs, base); ctx.closePath(); ctx.fill();
+      // 文字
+      ctx.font = `${11 * hr}px ui-monospace,Menlo,monospace`; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+      ctx.fillStyle = col; ctx.fillText(`判對 ${(spot + sg * SCENE_X).toFixed(0)}`, X + 4 * hr, yT * vr + (dirUp ? 9 : -9) * vr);
+      ctx.fillStyle = opp; ctx.fillText(`判錯 ${(spot - sg * SCENE_X).toFixed(0)}`, X + 4 * hr, yS * vr + (dirUp ? -9 : 9) * vr);
+      ctx.fillStyle = 'rgba(200,210,225,.85)';
+      ctx.fillText(`導師 ${T.direction}${T.confidence != null ? ' ' + T.confidence + '%' : ''}`, X + 4 * hr, y0 * vr + (dirUp ? 14 : -14) * vr);
+    });
+  }
+}
+const scenePrim = new ScenePrim(); candle.attachPrimitive(scenePrim); window.__scene = scenePrim;
+
+function redraw() { heatPrim.redraw(); bandPrim.redraw(); profPrim.redraw(); embandPrim.redraw(); mentorPrim.redraw(); scenePrim.redraw(); if (window.__flm) window.__flm.redraw(); if (window.__sqr) window.__sqr.redraw(); }
 
 function cursorIdx() {
   if (R.on) return R.idx;
@@ -808,6 +858,8 @@ function renderThesis() {
   arc.style.stroke = up ? 'var(--up)' : 'var(--dn)';
   $('#mGaugeMark').style.left = (50 + T.score / 2) + '%';
   { const hl = $('#mHeadline'); if (hl) hl.textContent = T.headline || ''; }
+  renderLadder($('#mLadder'), { spot: T.spot, levels: thesisLevels(T), dir: T.direction, conf: T.confidence });
+  scenePrim.redraw();
   { const rg = T.regime || {}; const el = $('#mSplit');
     if (el) el.innerHTML = T.score_dir == null ? '' :
       `<b>拆開看</b>:方向(不含 gamma 環境)<b class="${T.direction_dir === '偏多' ? 'upc' : 'dnc'}">${T.direction_dir} ${T.score_dir > 0 ? '+' : ''}${T.score_dir}</b>`
@@ -1472,7 +1524,7 @@ $$('.seg').forEach((seg) => seg.addEventListener('click', (e) => {
   S[key] = key === 'tf' ? +v : v;
   if (key === 'heatMode') S.lens = v === 'strike' ? 'abs' : 'net';
   save(); syncUI();
-  if (key === 'lens') { computeVmax(); redraw(); updateLegend(); } else if (key === 'tf') { loadAll(true); }
+  if (key === 'lens') { computeVmax(); redraw(); updateLegend(); } else if (key === 'tf') { applyChartPrefs(); loadAll(true); }
   else if (key === 'heatMode' || key === 'heatSrc') { loadHeat(); updateLegend(); }
   else { reload(); }
 }));
@@ -1492,6 +1544,7 @@ $('#layers').addEventListener('click', (e) => {
   if (k === 'events') { evPrim.redraw(); updateBell(); }
   if (k === 'sqrib' && S.sqrib) loadSq();
   if (k === 'mmarks') loadMentorMarks();
+  if (k === 'mscene') applyChartPrefs();
   redraw(); updateLegend();
 });
 function updateTbSum() {
@@ -1516,6 +1569,57 @@ $('#anlySkewSrc').addEventListener('click', (e) => {
 $('#mentorRefresh').addEventListener('click', loadThesis);
 /* 導師頁的收合區塊:點標題展開 / 收起 */
 $$('#mentorCard .msec.fold > h4').forEach((h4) => h4.addEventListener('click', () => h4.parentElement.classList.toggle('closed')));
+
+
+/* ---- 價位階梯圖(導師頁 / 問導師共用):把導師提到的價位、現價、方向與判定窗畫成一張圖 ---- */
+function renderLadder(el, spec) {
+  if (!el) return;
+  const spot = spec.spot, all = (spec.levels || []).filter((l) => l.p != null && isFinite(l.p));
+  const NEAR = 110;   // 只畫現價 ±110 點內的價位,太遠的會把有用的區間壓扁,改列在圖下方
+  const lv = spot == null ? all : all.filter((l) => Math.abs(l.p - spot) <= NEAR), far = spot == null ? [] : all.filter((l) => Math.abs(l.p - spot) > NEAR);
+  if (spot == null || !all.length) { el.innerHTML = '<span class="dim">資料不足,畫不出圖</span>'; return; }
+  const dirUp = spec.dir === '偏多', dirDn = spec.dir === '偏空', sg = dirUp ? 1 : -1;
+  const ps = lv.map((l) => l.p).concat([spot]);
+  if (dirUp || dirDn) ps.push(spot + SCENE_X, spot - SCENE_X);
+  let lo = Math.min(...ps), hi = Math.max(...ps); const pad = Math.max(8, (hi - lo) * 0.06); lo -= pad; hi += pad;
+  const W = 340, H = 300, top = 10, bot = H - 10, Xl = 118, Xr = 236;
+  const Y = (p) => bot - (p - lo) / (hi - lo) * (bot - top);
+  const colOf = (k) => ({ call: DN, wall: DN, res: DN, put: UP, sup: UP, flip: '#f8fafc', band: '#7d90a3', band0: '#9fb0c3' }[k] || '#ffd166');
+  // 標籤避讓
+  const rows = lv.map((l) => ({ ...l, y: Y(l.p), ly: Y(l.p) })).sort((a, b) => a.y - b.y);
+  for (let i = 1; i < rows.length; i++) if (rows[i].ly - rows[i - 1].ly < 13) rows[i].ly = rows[i - 1].ly + 13;
+  let g = `<svg viewBox="0 0 ${W} ${H}" class="ladder" role="img" aria-label="導師價位階梯圖">`;
+  if (dirUp || dirDn) {
+    const col = dirUp ? UP : DN, opp = dirUp ? DN : UP, yT = Y(spot + sg * SCENE_X), yS = Y(spot - sg * SCENE_X), y0 = Y(spot);
+    g += `<rect x="${Xl}" y="${Math.min(y0, yT)}" width="${Xr - Xl}" height="${Math.abs(yT - y0)}" fill="${col}" opacity=".16"/>`;
+    g += `<rect x="${Xl}" y="${Math.min(y0, yS)}" width="${Xr - Xl}" height="${Math.abs(yS - y0)}" fill="${opp}" opacity=".12"/>`;
+    g += `<line x1="${Xl}" x2="${Xr}" y1="${yT}" y2="${yT}" stroke="${col}" stroke-width="1.4"/><line x1="${Xl}" x2="${Xr}" y1="${yS}" y2="${yS}" stroke="${opp}" stroke-width="1.4" stroke-dasharray="5 4"/>`;
+    const ay = y0 + (yT - y0) * 0.88, ax = (Xl + Xr) / 2, tb = ay + (dirUp ? 9 : -9);
+    g += `<line x1="${ax}" x2="${ax}" y1="${y0}" y2="${ay}" stroke="${col}" stroke-width="2.2"/><path d="M${ax} ${ay} L${ax - 6} ${tb} L${ax + 6} ${tb} Z" fill="${col}"/>`;
+    g += `<text x="${Xr + 6}" y="${yT + 4}" fill="${col}" font-size="10.5">判對 ${(spot + sg * SCENE_X).toFixed(0)}</text><text x="${Xr + 6}" y="${yS + 4}" fill="${opp}" font-size="10.5">判錯 ${(spot - sg * SCENE_X).toFixed(0)}</text>`;
+  }
+  for (const r of rows) {
+    const c = colOf(r.kind);
+    g += `<line x1="${Xl - 8}" x2="${Xr}" y1="${r.y}" y2="${r.y}" stroke="${c}" stroke-width="1" ${r.kind === 'band' || r.kind === 'band0' ? 'stroke-dasharray="3 3"' : ''} opacity=".85"/>`;
+    g += `<text x="${Xl - 12}" y="${r.ly + 4}" text-anchor="end" fill="${c}" font-size="10.5">${esc(r.label)}</text>`;
+    if (!(dirUp || dirDn)) g += `<text x="${Xr + 6}" y="${r.ly + 4}" fill="${c}" font-size="10.5">${Math.round(r.p)}</text>`;
+    else g += `<text x="${W - 2}" y="${r.ly + 4}" text-anchor="end" fill="${c}" font-size="10" opacity=".9">${Math.round(r.p)}</text>`;
+  }
+  const ys = Y(spot);
+  g += `<line x1="${Xl - 8}" x2="${Xr}" y1="${ys}" y2="${ys}" stroke="#fff" stroke-width="2"/><circle cx="${Xl}" cy="${ys}" r="4" fill="#fff"/><text x="${Xl - 12}" y="${ys - 6}" text-anchor="end" fill="#fff" font-size="11" font-weight="700">現價 ${spot.toFixed(0)}</text>`;
+  g += '</svg>';
+  const farTxt = far.length ? `<div class="ladFar">較遠(未畫在圖上):${far.sort((a, b) => b.p - a.p).map((l) => esc(l.label) + ' ' + Math.round(l.p)).join(' · ')}</div>` : '';
+  const head = (dirUp || dirDn) ? `<div class="ladHead ${dirUp ? 'up' : 'dn'}">${dirUp ? '↑' : '↓'} ${spec.dir}${spec.conf != null ? ' · 信心 ' + spec.conf + '%' : ''}<small>箭頭方向的色塊 = 順向 ${SCENE_X} 點(判對);另一側 = 反向 ${SCENE_X} 點(判錯)· ${SCENE_MIN} 分鐘內先到者為準 · 命中率尚未驗證</small></div>` : '';
+  el.innerHTML = head + g + farTxt;
+}
+function thesisLevels(T) {
+  const kl = T.key_levels || {}, o = [];
+  const add = (p, kind, label) => { if (p != null) o.push({ p, kind, label }); };
+  add(kl.call, 'call', 'Call 牆'); add(kl.put, 'put', 'Put 牆'); add(kl.flip, 'flip', 'Flip');
+  add(kl.flip0, 'flip', '0DTE flip'); add(kl.band_up, 'band', '±1σ 上'); add(kl.band_dn, 'band', '±1σ 下');
+  add(kl.band0_up, 'band0', '0DTE 上'); add(kl.band0_dn, 'band0', '0DTE 下');
+  return o;
+}
 
 /* ---- 導師日結:讀 /api/daily(評論存檔 + 程式結算的 ±40 命中統計),AI 只負責把當天串成文字 ---- */
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
@@ -1649,6 +1753,7 @@ async function askMentor() {
     const r = await api('ask', { q });
     out.textContent = r.answer || '(空回應)';
     drawMentorOverlay(r.overlay);
+    renderLadder($('#askLadder'), { spot: r.spot, levels: ((r.overlay || {}).levels || []).map((l) => ({ p: l.p, kind: l.kind, label: l.label })), dir: (r.overlay || {}).direction, conf: null });
     play.hidden = false;
     play.textContent = '唸出來';
     play.disabled = false;
@@ -2105,7 +2210,7 @@ function applyChartPrefs() {
   chart.applyOptions({
     grid: g,
     crosshair: { mode: S.cross === 'magnet' ? LW.CrosshairMode.Magnet : LW.CrosshairMode.Normal, vertLine: { visible: !hide, labelVisible: !hide }, horzLine: { visible: !hide, labelVisible: !hide } },
-    timeScale: { rightOffset: S.roff, rightBarStaysOnScroll: S.stay },
+    timeScale: { rightOffset: roffEff(), rightBarStaysOnScroll: S.stay },
   });
   subChart.applyOptions({ grid: g });
   candle.priceScale().applyOptions({ mode: +S.pmode, autoScale: S.auto });

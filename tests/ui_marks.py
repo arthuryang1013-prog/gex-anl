@@ -25,7 +25,7 @@ with sync_playwright() as p:
     print("popup visible:", vis)
     pg.screenshot(path=os.path.join(out, "marks.png"))
     # 關閉圖層
-    pg.click('#layers button[data-v="mmarks"]'); pg.wait_for_timeout(800)
+    pg.click('#tbToggle'); pg.click('#layers button[data-v="mmarks"]'); pg.wait_for_timeout(800)
     print("after toggle off:", pg.evaluate("__mm.items.length"))
     b.close()
 print("errors:", errs or "none")

@@ -515,3 +515,10 @@ button.mkey:hover{border-color:var(--blue);color:var(--text)}
 .subFold:hover{background:#1c2432}
 .subwrap.folded{height:30px!important;overflow:hidden}
 .subwrap.folded #subchart,.subwrap.folded .subtitle,.subwrap.folded .subResize{display:none}
+
+.ladder{width:100%;max-width:420px;height:auto;display:block;font-family:ui-monospace,Menlo,monospace}
+.ladHead{font-weight:700;margin:2px 0 6px}
+.ladHead.up{color:var(--up,#2bc08b)}.ladHead.dn{color:var(--dn,#ff5c6c)}
+.ladHead small{display:block;font-weight:400;color:var(--mut,#8b97a8);font-size:11.5px;margin-top:2px}
+#askLadder{margin-top:10px}
+.ladFar{color:var(--mut,#8b97a8);font-size:11.5px;margin-top:4px}
