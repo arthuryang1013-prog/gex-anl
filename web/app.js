@@ -1899,7 +1899,8 @@ class EventPrim {
       ctx.font = `700 ${10.5 * hr}px -apple-system,"PingFang TC","Noto Sans TC",sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       const used = new Map();
       for (const e of visEvents()) {
-        const x = ts.timeToCoordinate(D.barT[e.bi]), y = this.series.priceToCoordinate(e.price);
+        const bt = D.barT[e.bi]; if (bt == null) continue;   // 事件指到的 K 棒已不在目前資料範圍(切換範圍/載入中)
+        const x = ts.timeToCoordinate(bt), y = this.series.priceToCoordinate(e.price);
         if (x == null || y == null) continue;
         const k = Math.round(x / 18) + ':' + Math.round(y / 18), n = used.get(k) || 0; used.set(k, n + 1);
         const yy = y - n * 19;
