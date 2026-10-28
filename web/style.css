@@ -499,3 +499,10 @@ button.mkey:hover{border-color:var(--blue);color:var(--text)}
 .mmPop{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:60;width:min(520px,calc(100vw - 32px));max-height:50vh;overflow:auto;background:var(--panel,#121821);border:1px solid #2a3547;border-radius:10px;padding:12px 14px;box-shadow:0 8px 28px rgba(0,0,0,.5);font-size:13px}
 .mmPop .mmX{position:absolute;right:8px;top:4px;background:none;border:0;color:inherit;font-size:20px;cursor:pointer}
 .mmPop .mmItem+.mmItem{margin-top:10px;padding-top:10px;border-top:1px solid #2a3547}
+
+/* 工具列預設收合:只留「範圍 + 設定摘要 + 盤中模式」,把圖表空間還給熱圖 */
+.tbx{display:contents}
+.toolbar.collapsed .tbx{display:none}
+.tbsum{color:var(--mut,#8b97a8);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:46vw}
+.toolbar.collapsed{padding-top:6px;padding-bottom:6px}
+@media (max-width:700px){.tbsum{display:none}}

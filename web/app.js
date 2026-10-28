@@ -16,7 +16,7 @@ const SCOPE_KEY = { all: 'ALL', ex0: 'EX0', zero: 'ZERO' };
 /* ------------------------------ settings ------------------------------ */
 const DEF = { hours: 8, day: null, tz: 'Asia/Taipei', srcs: ['NQ', 'QQQ', 'NDX'], basis: 'oi', scope: 'all', lens: 'abs',
   tf: 1, bucket: 25, heat: true, lines: true, profile: true, sub: true, alpha: 85, compress: 70, follow: true, candle: 'mono',
-  heatMode: 'strike', heatSrc: 'ALL', band: true, bandW: 20, bandA: 45, wgt: { NQ: 20, QQQ: 35, NDX: 45 }, wver: 2, wnorm: true, mmarks: true, events: true, evTypes: { surge: true, touch: true, cross: true }, evSeen: 0,
+  heatMode: 'strike', heatSrc: 'ALL', band: true, bandW: 20, bandA: 45, wgt: { NQ: 20, QQQ: 35, NDX: 45 }, wver: 2, wnorm: true, mmarks: true, tbOpen: false, events: true, evTypes: { surge: true, touch: true, cross: true }, evSeen: 0,
   pal: { name: '預設', low: '#3752cd', mid: '#1c96c3', high: '#ffbc48', pos: '#2bc08b', neg: '#ff5c6c' },
   gridH: false, gridV: false, cross: 'normal', pmode: 0, auto: true, pline: true, llabels: true, stay: false, lw: 3, roff: 8, nosb: false,
   subMode: 'net', sqrib: false, emband: true, anly: 'pcr', anlyPcrBasis: 'vol', anlySkewSrc: 'NQ', anlyDivBasis: 'oi', anlyDivScope: 'all',
@@ -1406,6 +1406,7 @@ $('#rSpeed').onchange = () => { if (R.timer) { stopPlay(); togglePlay(); } };
 
 /* ------------------------------ controls ------------------------------ */
 function syncUI() {
+  updateTbSum();
   $$('.seg').forEach((seg) => {
     const key = seg.dataset.key;
     $$('button', seg).forEach((b) => {
@@ -1468,6 +1469,15 @@ $('#layers').addEventListener('click', (e) => {
   if (k === 'mmarks') loadMentorMarks();
   redraw(); updateLegend();
 });
+function updateTbSum() {
+  const el = $('#tbsum'); if (!el) return;
+  const rng = S.day ? S.day : (S.hours >= 24 ? (S.hours / 24) + 'D' : S.hours + 'H');
+  const sc = { all: '含 0DTE', ex0: '排除 0DTE', zero: '只看 0DTE' }[S.scope] || S.scope;
+  el.textContent = [S.srcs.map(sn).join('+'), S.basis === 'vol' ? '成交量' : '未平倉量', sc, S.tf + ' 分 K'].join(' · ');
+  const tb = $('#toolbar'); tb.classList.toggle('collapsed', !S.tbOpen);
+  $('#tbToggle').textContent = S.tbOpen ? '設定 ▴' : '設定 ▾';
+}
+$('#tbToggle').addEventListener('click', () => { S.tbOpen = !S.tbOpen; save(); updateTbSum(); requestAnimationFrame(() => { try { chart.timeScale().applyOptions({}); window.dispatchEvent(new Event('resize')); } catch (e) {} }); });
 $('#preset').addEventListener('click', () => {
   Object.assign(S, { hours: 2, day: null, srcs: ['WGT'], scope: 'all', tf: 1, mmarks: true, lines: true, follow: true });
   save(); syncUI(); loadAll(true); loadAnalysis(); toast('已切到盤中模式:近 2 小時 · 加權合計 · 含 0DTE · 1 分 K');
