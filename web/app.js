@@ -20,10 +20,10 @@ const DEF = { hours: 8, day: null, tz: 'Asia/Taipei', srcs: ['NQ', 'QQQ', 'NDX']
   pal: { name: '預設', low: '#3752cd', mid: '#1c96c3', high: '#ffbc48', pos: '#2bc08b', neg: '#ff5c6c' },
   gridH: false, gridV: false, cross: 'normal', pmode: 0, auto: true, pline: true, llabels: true, stay: false, lw: 3, roff: 8, nosb: false,
   subMode: 'net', sqrib: false, emband: true, anly: 'pcr', anlyPcrBasis: 'vol', anlySkewSrc: 'NQ', anlyDivBasis: 'oi', anlyDivScope: 'all',
-  flmark: true, sets: false, mmini: true, lineCol: { NQ: '#7d9bd9', QQQ: '#39d98a', NDX: '#e7a44c', WGT: '#ff7ad9' } };
+  flmark: true, feKinds: { sweep: true, stop: true, absorb: true, iceberg: true, exhaust: true }, sets: false, mmini: true, lineCol: { NQ: '#7d9bd9', QQQ: '#39d98a', NDX: '#e7a44c', WGT: '#ff7ad9' } };
 const S = { ...DEF };
 try { if (/[?&]reset\b/.test(location.search)) localStorage.removeItem('gexweb.v1'); } catch (e) { /* ignore */ }
-try { const o = JSON.parse(localStorage.getItem('gexweb.v1') || '{}'); Object.assign(S, o); S.pal = { ...DEF.pal, ...(o.pal || {}) }; S.evTypes = { ...DEF.evTypes, ...(o.evTypes || {}) }; S.wgt = { ...DEF.wgt, ...(o.wgt || {}) }; S.lineCol = { ...DEF.lineCol, ...(o.lineCol || {}) }; if ((o.wver || 0) < 2) { S.wgt = { ...DEF.wgt }; S.wver = 2; } if (S.subMode !== 'net' && S.subMode !== 'sq') S.subMode = 'net'; if (!['pcr', 'skew', 'div'].includes(S.anly)) S.anly = 'pcr'; if (!['vol', 'oi'].includes(S.anlyPcrBasis)) S.anlyPcrBasis = 'vol'; if (!['NQ', 'QQQ', 'NDX'].includes(S.anlySkewSrc)) S.anlySkewSrc = 'NQ'; if (!['oi', 'vol'].includes(S.anlyDivBasis)) S.anlyDivBasis = 'oi'; if (!['all', 'ex0', 'zero'].includes(S.anlyDivScope)) S.anlyDivScope = 'all'; } catch (e) { /* storage may be blocked */ }
+try { const o = JSON.parse(localStorage.getItem('gexweb.v1') || '{}'); Object.assign(S, o); S.pal = { ...DEF.pal, ...(o.pal || {}) }; S.evTypes = { ...DEF.evTypes, ...(o.evTypes || {}) }; S.feKinds = { ...DEF.feKinds, ...(o.feKinds || {}) }; S.wgt = { ...DEF.wgt, ...(o.wgt || {}) }; S.lineCol = { ...DEF.lineCol, ...(o.lineCol || {}) }; if ((o.wver || 0) < 2) { S.wgt = { ...DEF.wgt }; S.wver = 2; } if (S.subMode !== 'net' && S.subMode !== 'sq') S.subMode = 'net'; if (!['pcr', 'skew', 'div'].includes(S.anly)) S.anly = 'pcr'; if (!['vol', 'oi'].includes(S.anlyPcrBasis)) S.anlyPcrBasis = 'vol'; if (!['NQ', 'QQQ', 'NDX'].includes(S.anlySkewSrc)) S.anlySkewSrc = 'NQ'; if (!['oi', 'vol'].includes(S.anlyDivBasis)) S.anlyDivBasis = 'oi'; if (!['all', 'ex0', 'zero'].includes(S.anlyDivScope)) S.anlyDivScope = 'all'; } catch (e) { /* storage may be blocked */ }
 const save = () => { try { localStorage.setItem('gexweb.v1', JSON.stringify(S)); } catch (e) { /* ignore */ } };
 
 /* ------------------------------ state ------------------------------ */
@@ -1375,7 +1375,7 @@ chart.subscribeCrosshairMove((param) => {
   let ci = -1;
   for (let i = D.cols.length - 1; i >= 0; i--) if (D.cols[i].si >= 0 && D.cols[i].si <= bi) { ci = i; break; }
   if (ci !== hoverIdx) { hoverIdx = ci; if (S.follow && !R.on) redraw(); }
-  subChart.setCrosshairPosition(0, param.time, subSeries());
+  try { subChart.setCrosshairPosition(0, param.time, subSeries()); } catch (e) { /* 子圖尚無資料(剛載入、滑鼠已在圖上)時會丟 Value is null */ }
   /* tooltip */
   const price = candle.coordinateToPrice(param.point.y);
   const col = ci >= 0 ? D.cols[ci] : null;
@@ -2163,6 +2163,7 @@ class FlowEvPrim {
       const used = new Map();
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
       for (const e of flowEvents) {
+        if (S.feKinds[e.k] === false) continue;                             // 圖例上關掉的種類不畫
         const bi = lowerIdx(D.barT, e.t); if (bi < 0) continue;
         let x = ts.timeToCoordinate(D.barT[bi]), y = ser.priceToCoordinate(e.p);
         if (x == null || y == null || x < -20 || x > W + 20) continue;
@@ -2226,7 +2227,13 @@ function feTipHtml(e) {
   const wrap = $('#chart').parentElement; wrap.style.position = wrap.style.position || 'relative';
   const tip = document.createElement('div'); tip.className = 'feTip'; tip.hidden = true; document.body.appendChild(tip);
   const lg = document.createElement('div'); lg.className = 'feLegend'; lg.id = 'feLegend'; lg.hidden = true;
-  lg.innerHTML = '<span class="feG"><i>吸</i>吸收</span><span class="feG"><i class="dm">冰</i>冰山</span><span class="feG"><i class="ci">竭</i>力竭</span><span class="feG"><i class="sw">掃</i>掃單</span><span class="feG"><i class="sw">停</i>停損(推測)</span><em>綠=偏多含意 紅=偏空含意</em>';
+  lg.innerHTML = '<button class="feG" data-k="absorb" title="點一下顯示/隱藏吸收"><i>吸</i><span>吸收</span></button><button class="feG" data-k="iceberg" title="點一下顯示/隱藏冰山"><i class="dm">冰</i><span>冰山</span></button>'
+    + '<button class="feG" data-k="exhaust" title="點一下顯示/隱藏力竭"><i class="ci">竭</i><span>力竭</span></button><button class="feG" data-k="sweep" title="點一下顯示/隱藏掃單"><i class="sw">掃</i><span>掃單</span></button>'
+    + '<button class="feG" data-k="stop" title="點一下顯示/隱藏停損(推測)"><i class="sw">停</i><span>停損(推測)</span></button><em>綠=偏多含意 紅=偏空含意 · 點圖例可個別開關</em>';
+  lg.addEventListener('click', (ev) => {
+    const b = ev.target.closest('.feG'); if (!b) return;
+    const k = b.dataset.k; S.feKinds[k] = S.feKinds[k] === false; save(); flowEvPrim.redraw(); updateFeLegend();
+  });
   wrap.appendChild(lg);
   window.__feTip = tip;
   chart.subscribeCrosshairMove((p) => {
@@ -2241,7 +2248,13 @@ function feTipHtml(e) {
     tip.style.left = Math.max(8, left) + 'px'; tip.style.top = Math.max(8, Math.min(window.innerHeight - tip.offsetHeight - 8, rc.top + hit.y - 20)) + 'px';
   });
 })();
-function updateFeLegend() { const lg = $('#feLegend'); if (lg) lg.hidden = !(S.flmark && flowEvents.length); }
+const FE_NAME = { absorb: '吸收', iceberg: '冰山', exhaust: '力竭', sweep: '掃單', stop: '停損(推測)' };
+function updateFeLegend() {
+  const lg = $('#feLegend'); if (!lg) return;
+  lg.hidden = !(S.flmark && flowEvents.length);
+  const cnt = {}; for (const e of flowEvents) cnt[e.k] = (cnt[e.k] || 0) + 1;
+  $$('.feG', lg).forEach((b) => { const k = b.dataset.k, off = S.feKinds[k] === false; b.classList.toggle('off', off); b.setAttribute('aria-pressed', String(!off)); $('span', b).textContent = FE_NAME[k] + (cnt[k] ? ' ' + cnt[k] : ''); });
+}
 async function loadFlowEvents() {
   if (!D.bars.length) { flowEvents = []; flowEvPrim.redraw(); updateFeLegend(); return; }
   try {

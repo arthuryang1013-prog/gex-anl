@@ -9,7 +9,7 @@ d = tempfile.mkdtemp(); F.serve(d, 8813, "live")
 errs = []
 with sync_playwright() as p:
     b = p.chromium.launch()
-    pg = b.new_page(viewport={"width": 1440, "height": 900}); pg.on("pageerror", lambda e: errs.append(str(e)))
+    ctx = b.new_context(viewport={"width": 1440, "height": 900}); pg = ctx.new_page(); pg.on("pageerror", lambda e: errs.append(str(e)))
     pg.goto("http://127.0.0.1:8813/"); pg.wait_for_timeout(3500)
     n = pg.evaluate("window.__feN ? window.__feN() : -1")
     chip = pg.evaluate("document.querySelector('#layers button[data-v=flmark]').textContent")
@@ -23,6 +23,24 @@ with sync_playwright() as p:
     pg.mouse.move(box[0] + pos["x"], box[1] + pos["y"]); pg.wait_for_timeout(400)
     tip = pg.evaluate("window.__feTip.hidden ? '' : window.__feTip.innerText"); print("tooltip:", tip.replace("\n", " | ")[:200]); assert "推測" in tip or "線索" in tip
     pg.screenshot(path=os.path.join(out, "fe-hover.png"))
+    # 圖例個別開關:關掉「停損」→ 畫面上不再有停損,其他不變;再點恢復;設定會存起來
+    kinds = lambda: pg.evaluate("window.__feHits().map(h => h.e.k)")
+    k0 = kinds(); assert "stop" in k0 and "absorb" in k0, k0
+    pg.click('#feLegend .feG[data-k=stop]'); pg.wait_for_timeout(300)
+    k1 = kinds(); print("關掉停損後種類:", sorted(set(k1))); assert "stop" not in k1 and k1.count("absorb") == k0.count("absorb")
+    assert pg.evaluate("document.querySelector('#feLegend .feG[data-k=stop]').classList.contains('off')")
+    assert pg.evaluate("JSON.parse(localStorage.getItem('gexweb.v1')).feKinds.stop") is False
+    for k in ("absorb", "iceberg", "exhaust", "sweep"): pg.click(f'#feLegend .feG[data-k={k}]')
+    pg.wait_for_timeout(300); assert kinds() == [], "全部關掉應該一個都不畫"
+    assert pg.evaluate("!document.getElementById('feLegend').hidden"), "全關時圖例還要在,才能再打開"
+    pg.screenshot(path=os.path.join(out, "fe-legend-off.png"))
+    for k in ("stop", "absorb", "iceberg", "exhaust", "sweep"): pg.click(f'#feLegend .feG[data-k={k}]')
+    pg.wait_for_timeout(300); assert sorted(kinds()) == sorted(k0), "全部打開要回到原樣"
+    # 重新整理後設定保留(關掉冰山)
+    pg.click('#feLegend .feG[data-k=iceberg]'); old = pg; pg = ctx.new_page(); old.close(); pg.on("pageerror", lambda e: errs.append(str(e))); pg.goto("http://127.0.0.1:8813/"); pg.wait_for_timeout(3500)
+    assert "iceberg" not in kinds() and pg.evaluate("document.querySelector('#feLegend .feG[data-k=iceberg]').classList.contains('off')"), "重新整理後開關要保留"
+    pg.click('#feLegend .feG[data-k=iceberg]'); pg.wait_for_timeout(200)
+    print("圖例個別開關 OK")
     # 關掉圖層
     pg.click('#tbToggle') if pg.query_selector('#tbToggle') and not pg.is_visible('#layers button[data-v=flmark]') else None
     pg.click('#layers button[data-v=flmark]'); pg.wait_for_timeout(500)
