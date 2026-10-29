@@ -111,11 +111,182 @@ samples = deque()          # 每秒快照,用來算「近 60 秒」窗口
 trade_log = deque()        # 近 60 秒的成交紀錄:(時間, 買/賣, 價, 口數)
 
 
+# =========================== 把 Bookmap 能給的東西用滿 ===========================
+# (依 bookmap 套件原始碼確認:handler 丟例外會讓整個 addon 被關掉,所以下面全部包 try/except)
+#  1. 診斷 D:各類事件數、成交帶不帶 id、id 原始值樣本 → 封包 diag(看 id 到底有沒有給、冰山能不能用委託 id)
+#  2. 設定面板:門檻可在 Bookmap 的 addon 設定裡直接改(reload_if_change=False,不會重啟、不用重貼)
+#  3. 指標線:把我們算的 CVD / 近 60 秒 Delta 畫在 Bookmap 副圖,可跟 Bookmap 原生 CVD 對照(驗證用)
+#  4. 訊息欄:事件觸發時 send_user_message 寫進 Bookmap 訊息記錄,可跟 Bookmap 自己的 Stops & Icebergs 並排比對
+#  5. 廣播:自動訂閱其他 addon(例如 Bookmap 內建的 Stops & Icebergs)廣播的所有 generator,原始內容記進封包 bcast;
+#     格式未知,先只記錄,之後看真資料再決定怎麼接
+#  6. 商品資訊:instrument_multiplier、supported_features(資料是不是 MBO、是否延遲、來源交易所)
+D = {"trades": 0, "exec_start": 0, "aggr_id": 0, "pass_id": 0, "pass_match": 0, "otc": 0,
+     "mbo": 0, "mbo_types": {}, "depth": 0, "err": 0, "samples": {"aggr": [], "pass": [], "mbo": []}}
+_addon = None
+_alias = None
+_info = {}                 # 商品資訊 / 資料特徵
+_ind = {}                  # 指標名 -> indicator_id(Bookmap 回的)
+_ind_req = {}              # req_id -> 指標名
+_bc = {"status": None, "subs": set(), "counts": {}, "recent": deque(maxlen=12), "dirty": False}
+MSG_ON = True              # 事件觸發時寫一行到 Bookmap 訊息欄
+
+# (名稱, 變數, 預設, 最小, 最大, 步長);名稱用 ASCII,避免設定欄位編碼問題
+_SETTINGS = [
+    ("OF big_min", "BIG_MIN", 20, 5, 200, 5),
+    ("OF sweep_min_vol", "SWEEP_MIN_VOL", 15, 1, 500, 1),
+    ("OF stop_min_aggr", "STOP_MIN_AGGR", 3, 2, 20, 1),
+    ("OF stop_min_vol", "STOP_MIN_VOL", 25, 5, 500, 5),
+    ("OF stop_min_pts", "STOP_MIN_PTS", 2.0, 0.5, 20.0, 0.25),
+    ("OF ice_min_vol", "ICE_MIN_VOL", 40, 5, 500, 5),
+    ("OF ice_sd_k", "ICE_SD_K", 2.0, 0.5, 6.0, 0.25),
+    ("OF ice_factor", "ICE_FACTOR", 3.0, 1.0, 10.0, 0.5),
+    ("OF abs_min_vol", "ABS_MIN_VOL", 120, 20, 1000, 10),
+    ("OF abs_sd_k", "ABS_SD_K", 2.0, 0.5, 6.0, 0.25),
+    ("OF abs_dom", "ABS_DOM", 0.65, 0.5, 0.95, 0.05),
+    ("OF exh_push_vol", "EXH_PUSH_VOL", 80, 20, 500, 10),
+    ("OF exh_rise_pts", "EXH_RISE_PTS", 4.0, 1.0, 20.0, 0.5),
+]
+_BOOL_SETTINGS = [("OF events_on", "EVENTS_ON", True), ("OF msg_on", "MSG_ON", True)]
+
+
+def _setup_addon(addon, alias, full_name, instrument_multiplier, supported_features):
+    global _addon, _alias
+    _addon, _alias = addon, alias
+    sf = supported_features if isinstance(supported_features, dict) else {}
+    _info.update(name=full_name, mult=instrument_multiplier,
+                 mbo=sf.get("mbo"), depth=sf.get("depth"), delayed=sf.get("isDelayed"),
+                 exch=sf.get("exchangeUsedForSubscription"), typ=sf.get("typeUsedForSubscription"),
+                 mkt=sf.get("marketMode"))
+    # 設定面板
+    for (nm, var, dv, lo, hi, st) in _SETTINGS:
+        bm.add_number_settings_parameter(addon, alias, nm, globals().get(var, dv), lo, hi, st, reload_if_change=False)
+    for (nm, var, dv) in _BOOL_SETTINGS:
+        bm.add_boolean_settings_parameter(addon, alias, nm, bool(globals().get(var, dv)), reload_if_change=False)
+    # 副圖指標(畫的是 bridge 自己算的值,跟 Bookmap 原生 CVD 對照用)
+    for rid, (nm, col) in enumerate((("OF CVD(trades)", (0, 200, 255)), ("OF Delta 60s", (255, 170, 0))), start=101):
+        _ind_req[rid] = nm
+        bm.register_indicator(addon, alias, rid, nm, "BOTTOM", color=col)
+    try:
+        bm.send_user_message(addon, alias, f"[OF] 已啟動 mbo={_info.get('mbo')} depth={_info.get('depth')} "
+                                           f"delayed={_info.get('delayed')} exch={_info.get('exch')} mult={_info.get('mult')}")
+    except Exception:
+        pass
+
+
+def handle_setting_change(addon, alias, name, field_type, value):
+    try:
+        for (nm, var, dv, lo, hi, st) in _SETTINGS:
+            if nm == name:
+                globals()[var] = int(round(value)) if isinstance(dv, int) else float(value)
+                return
+        for (nm, var, dv) in _BOOL_SETTINGS:
+            if nm == name:
+                globals()[var] = bool(value)
+                return
+    except Exception:
+        D["err"] += 1
+
+
+def handle_indicator_response(addon, request_id, indicator_id):
+    try:
+        nm = _ind_req.get(request_id)
+        if nm:
+            _ind[nm] = indicator_id
+    except Exception:
+        D["err"] += 1
+
+
+def _push_indicators(cvd_tr, delta60):
+    if not _addon:
+        return
+    try:
+        for nm, v in (("OF CVD(trades)", cvd_tr), ("OF Delta 60s", delta60)):
+            iid = _ind.get(nm)
+            if iid is not None:
+                bm.add_point(_addon, _alias, iid, float(v))
+    except Exception:
+        D["err"] += 1
+
+
+_last_msg_t = [0.0]
+
+
+def _notify(ev):
+    """事件寫進 Bookmap 訊息欄(最多每 2 秒一則,避免洗版)。"""
+    try:
+        if not (MSG_ON and _addon):
+            return
+        now = time.time()
+        if now - _last_msg_t[0] < 2.0:
+            return
+        _last_msg_t[0] = now
+        x = ev.get("x") or {}
+        tag = {"sweep": "掃單", "stop": "停損(推測)", "absorb": "吸收", "iceberg": "冰山", "exhaust": "力竭"}.get(ev["k"], ev["k"])
+        bm.send_user_message(_addon, _alias, f"[OF] {tag} {ev['s']} {ev['v']}口 @{ev['p']}" + (f" conf={x['conf']}" if "conf" in x else ""))
+    except Exception:
+        pass
+
+
+def handle_bcast_status(addon, status):
+    """其他 addon 的廣播來源清單。全部訂閱,原始內容先記錄,格式之後看真資料再接。"""
+    try:
+        _bc["status"] = repr(status)[:600]
+        _bc["dirty"] = True
+        if not isinstance(status, dict):
+            return
+        for prov, gens in status.items():
+            if ("P", prov) not in _bc["subs"]:
+                _bc["subs"].add(("P", prov))
+                bm.subscribe_to_provider(addon, prov)
+            names = []
+            if isinstance(gens, dict):
+                names = list(gens.keys())
+            elif isinstance(gens, (list, tuple, set)):
+                for g in gens:
+                    names.append(g.get("name") if isinstance(g, dict) else g)
+            for g in names:
+                if g and (prov, g) not in _bc["subs"]:
+                    _bc["subs"].add((prov, g))
+                    bm.subscribe_to_generator(addon, prov, str(g), False)
+    except Exception:
+        D["err"] += 1
+
+
+def handle_bcast(addon, generator_name, event):
+    try:
+        generator_name = str(generator_name)[:60]
+        if generator_name not in _bc["counts"] and len(_bc["counts"]) >= 50:
+            return
+        _bc["counts"][generator_name] = _bc["counts"].get(generator_name, 0) + 1
+        n = _bc["counts"][generator_name]
+        if n <= 5 or n % 200 == 0:                 # 每個 generator 先留前 5 筆原始內容,之後每 200 筆抽樣一筆
+            _bc["recent"].append([round(time.time(), 1), str(generator_name)[:60], repr(event)[:300]])
+            _bc["dirty"] = True
+    except Exception:
+        D["err"] += 1
+
+
+def _diag_payload():
+    d = {k: v for k, v in D.items() if k not in ("samples", "mbo_types")}
+    d["mbo_types"] = dict(D["mbo_types"])
+    d["samples"] = D["samples"]
+    d["info"] = _info
+    d["bc"] = {"status": _bc["status"], "counts": dict(_bc["counts"]), "subs": len(_bc["subs"])}
+    if _bc["dirty"]:
+        d["bc"]["recent"] = list(_bc["recent"])
+        _bc["dirty"] = False
+    return d
+
+
 def handle_subscribe_instrument(addon, alias, full_name, is_crypto, pips, size_multiplier, instrument_multiplier, supported_features):
     global _pips, _size_mult
     _pips = pips or 0.25
     _size_mult = size_multiplier or 1.0
     print(f"[orderflow_bridge] 訂閱 {full_name} pips={_pips} size_mult={_size_mult}", flush=True)
+    try:
+        _setup_addon(addon, alias, full_name, instrument_multiplier, supported_features)
+    except Exception as e:
+        print(f"[orderflow_bridge] 設定面板/指標/廣播初始化失敗(不影響主功能):{e}", flush=True)
     bm.subscribe_to_depth(addon, alias, 1)
     bm.subscribe_to_mbo(addon, alias, 2)
     bm.subscribe_to_trades(addon, alias, 3)
@@ -175,7 +346,7 @@ def _track(kind, is_bid, price_level, size_cts):
             stack_ask += size_cts
 
 
-def handle_mbo(addon, alias, event_type, order_id, price_level, size_level):
+def _handle_mbo_inner(addon, alias, event_type, order_id, price_level, size_level):
     global last_event_time
     with _lock:
         last_event_time = time.time()
@@ -263,6 +434,7 @@ def _emit(kind, side, price, vol, x=None, key=None, now=None):
     if x:
         ev["x"] = x
     events.append(ev)
+    _notify(ev)
     return True
 
 
@@ -592,27 +764,77 @@ def _events_payload():
     return list(events)
 
 
+def _norm_id(x):
+    """Bookmap 沒有 id 時不一定給 None(原始碼是 str(...)),所以空字串/null/none/nan/0 都當成「沒有」。"""
+    if x is None:
+        return None
+    t = str(x).strip()
+    if t == "" or t.lower() in ("none", "null", "nan", "0", "-1"):
+        return None
+    return t
+
+
 def handle_trades(addon, alias, price_level, size_level, is_otc, is_bid, is_execution_start,
                   is_execution_end, aggressor_order_id=None, passive_order_id=None):
-    """實際成交。is_bid=True 代表買方主動(依官方文件);用來跟 MBO 推判的 Delta 對照。"""
+    """實際成交。is_bid=True 代表買方主動(依官方文件);用來跟 MBO 推判的 Delta 對照。
+    任何例外都吞掉:Bookmap 的 handler 一丟例外就會把整個 addon 關掉。"""
     global tr_buy, tr_sell
-    with _lock:
-        try:
-            sz = float(size_level) / _size_mult
-        except Exception:
-            sz = float(size_level)
-        if is_bid:
-            tr_buy += sz
-        else:
-            tr_sell += sz
-        try:
-            _on_trade_event(time.time(), "b" if is_bid else "s", price_level, price_level * _pips, sz, bool(is_bid),
-                            start=bool(is_execution_start), aggr_id=aggressor_order_id, pass_id=passive_order_id)
-        except Exception:
-            pass
+    try:
+        with _lock:
+            D["trades"] += 1
+            if is_execution_start:
+                D["exec_start"] += 1
+            for nm, raw in (("aggr", aggressor_order_id), ("pass", passive_order_id)):
+                if len(D["samples"][nm]) < 6 and repr(raw) not in D["samples"][nm]:
+                    D["samples"][nm].append(repr(raw))
+            if is_otc:
+                D["otc"] += 1                      # 場外成交:不算進 Delta / 事件偵測
+                return
+            aid = _norm_id(aggressor_order_id)
+            pid = _norm_id(passive_order_id)
+            if aid:
+                D["aggr_id"] += 1
+            if pid:
+                D["pass_id"] += 1
+                if pid in ord_stat:
+                    D["pass_match"] += 1
+            try:
+                sz = float(size_level) / _size_mult
+            except Exception:
+                sz = float(size_level)
+            if is_bid:
+                tr_buy += sz
+            else:
+                tr_sell += sz
+            try:
+                _on_trade_event(time.time(), "b" if is_bid else "s", price_level, price_level * _pips, sz, bool(is_bid),
+                                start=bool(is_execution_start), aggr_id=aid, pass_id=pid)
+            except Exception:
+                D["err"] += 1
+    except Exception:
+        pass
+
+
+def handle_mbo(addon, alias, event_type, order_id, price_level, size_level):
+    try:
+        D["mbo"] += 1
+        if len(D["samples"]["mbo"]) < 4 and repr(order_id) not in D["samples"]["mbo"]:
+            D["samples"]["mbo"].append(repr(order_id))
+        D["mbo_types"][event_type] = D["mbo_types"].get(event_type, 0) + 1
+        _handle_mbo_inner(addon, alias, event_type, order_id, price_level, size_level)
+    except Exception:
+        D["err"] += 1
 
 
 def handle_depth(addon, alias, is_bid, price_level, size_level):
+    try:
+        D["depth"] += 1
+        _handle_depth_inner(addon, alias, is_bid, price_level, size_level)
+    except Exception:
+        D["err"] += 1
+
+
+def _handle_depth_inner(addon, alias, is_bid, price_level, size_level):
     global best_bid, best_ask, last_event_time
     with _lock:
         last_event_time = time.time()
@@ -763,7 +985,10 @@ def _tick():
         "book_ask": book_ask,
         "trades": trades,
         "events": ev_out,
+        "mult": _info.get("mult"),
+        "diag": _diag_payload(),
     }
+    _push_indicators(pkt["cvd_tr"], pkt["delta_tr"])
     _post(pkt)
 
 
@@ -794,6 +1019,14 @@ if __name__ == "__main__":
     bm.add_depth_handler(addon, handle_depth)
     bm.add_mbo_handler(addon, handle_mbo)
     bm.add_trades_handler(addon, handle_trades)
+    for _reg, _fn in (("add_on_setting_change_handler", handle_setting_change),
+                      ("add_indicator_response_handler", handle_indicator_response),
+                      ("add_broadcasting_provider_status_handler", handle_bcast_status),
+                      ("add_broadcasting_handler", handle_bcast)):
+        try:
+            getattr(bm, _reg)(addon, _fn)
+        except Exception as _e:
+            print(f"[orderflow_bridge] {_reg} 失敗:{_e}", flush=True)
     bm.start_addon(addon, handle_subscribe_instrument, handle_unsubscribe_instrument)
     threading.Thread(target=_bg_loop, daemon=True).start()
     bm.wait_until_addon_is_turned_off(addon)

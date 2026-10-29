@@ -67,6 +67,8 @@
   - 力竭:推進段(60~15 秒前)淨量 ≥80、推進 ≥4 點,最後三分之一的量 ≤ 最前三分之一的 0.7 倍,最近 15 秒量萎縮且不創新高/低。
   - **基準線只用 bridge 啟動後的滾動 10 分鐘,不是 Bookmap 那種「同時段」基準**;bridge 剛啟動 5~10 分鐘內吸收/冰山自適應門檻不完整。
   - `aggressor_order_id` / `passive_order_id` 依 Bookmap 文件只在「某些 MBO 情況」提供,**實際有沒有給、冰山能不能用委託 id 對上,要看真資料**;沒有 id 時退回價位/批次統計(可信度較低)。
+  - **Bookmap 套件的事實(讀 bookmap 0.1.2 原始碼確認,不是只看說明文件)**:handler 丟例外會讓整個 addon 被關掉(所以 bridge 所有 handler 都吞例外);成交的 `aggressor_order_id`/`passive_order_id` 沒有時是 `str(...)` 不是 None(`_norm_id` 把空字串/null/none/nan/0 視為沒有);設定欄位 `reload_if_change=False` 才不會改設定就重啟;`subscribe_to_bars` 原始碼註解寫 "does not work";成交事件沒有時間戳,bridge 用本機時間。bridge 另外用了:設定面板(門檻可在 Bookmap 內調,名稱前綴 `OF `)、副圖指標 `OF CVD(trades)` / `OF Delta 60s`(跟 Bookmap 原生 CVD 對照)、訊息欄(事件觸發寫一行)、廣播(自動訂閱其他 addon 的所有 generator,先只記原始內容)、OTC 成交旗標(不算 Delta)、商品資訊(`mult`、MBO/延遲/交易所特徵)。**這些呼叫只對照過套件原始碼、用假/真套件的訊息解析測過;Bookmap 實際 UI 怎麼顯示、指標副圖的數值單位(是否要換成價格)都沒在真 Bookmap 驗證過。**
+  - 診斷:封包 `diag`(只在 `orderflow.json`,不進每日存檔);VPS 上跑 `python3 orderflow_diag.py` 用白話看 id 有沒有給、MBO id 與成交 id 對不對得上、有沒有收到廣播。
   - 測試:`tests/test_orderflow_events.py`(假行情正反例 + 4 組隨機行情 1 小時零誤報)。**只證明邏輯與不會被噪音觸發,不證明抓得到真實事件、更不證明有預測力**;門檻要看過真實盤面再調。更新 bridge 要把新版整份重貼進 Windows 的 Bookmap(保留 `MAC_IP`、`TOKEN`)並重建,盤外做;receiver 與 web 要 `systemctl restart orderflow-receiver gex-web`。
 - 熱圖 K 線上的導師標記只標 AI 導師的結論;規則版(盤面指標)不再標 #。
 - **K 棒由 gex-web 另開的程序抓**(`bars_process`,IB clientId 31),不是收集器。2026-10-29 發生過:IBKR 夜間重置時即時訂閱死了(Error 10182)但 API 連線沒斷,程序一直以為連著,K 棒停了約 10 小時。已加看門狗(開市時間內 `BARS_STALE_SEC` 秒沒更新或收到 10182 就重連);**只用假的 ib_async 測過**。救急:`systemctl restart gex-web`(會重新訂閱並補 4 天歷史),不影響收集器。

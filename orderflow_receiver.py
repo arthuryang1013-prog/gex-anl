@@ -267,7 +267,7 @@ class H(BaseHTTPRequestHandler):
             return self._send(500, {"ok": False, "error": str(e)})
         _append_history({k: data[k] for k in HIST_KEEP if k in data})
         _store_events(data.get("events"))
-        _archive_add(data)
+        _archive_add({k: v for k, v in data.items() if k != "diag"})    # 診斷只留在 orderflow.json,不進每日存檔
         self._send(200, {"ok": True, "ts": data.get("ts")})
 
 
