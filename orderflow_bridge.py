@@ -26,30 +26,42 @@ SEND_EVERY = 1.0           # 每秒送一次
 WINDOW_SEC = 60.0          # 統計窗口:數字 = 最近 60 秒的累計
 TOP_N = 10                 # 訂單簿不平衡取前 10 檔
 BIG_MIN = 20               # 單筆 >= 20 口算大單
-SWEEP_GAP = 0.5            # 同方向連續攻擊單間隔 <= 0.5 秒算掃單
+SWEEP_GAP = 0.5            # 同方向連續攻擊單間隔 <= 0.5 秒算掃單(也用在事件偵測)
 BOOK_RANGE_PTS = 100.0     # 掛單簿範圍:現價 ± 100 點
 BOOK_MAX_LEVELS = 120      # 單邊最多送幾檔(防封包過大)
 TRADE_WINDOW_SEC = 60.0    # 成交熱區統計窗口(近 60 秒)
 NEAR_PTS = 5.0             # 「靠近成交價」的範圍:離最佳買/賣價 5 點內的掛單,才算撤單/加單事件
 ORDER_CAP = 200000         # 追蹤中的委託上限(防記憶體無限成長)
-# --- 訂單流事件偵測(吸收 / 冰山 / 力竭 / 掃單)。門檻是初始猜測,還沒用真資料調過,偵測結果只當線索 ---
+# --- 訂單流事件偵測(掃單 / 停損 / 冰山 / 吸收 / 力竭)。概念仿 Bookmap「Stops & Icebergs」與 ATAS MBO 指標,
+#     但兩家都沒公開精確演算法與預設數值,所以下面的門檻是我們自己的初始值,還沒用真資料調過,偵測結果只當線索 ---
 EVENTS_ON = True           # 設 False 就完全不偵測、不送 events
 EVT_KEEP_SEC = 150.0       # 每包帶最近這麼多秒內偵測到的事件(接收端會去重)
-SWEEP_LEVELS = 3           # 掃單:一波同方向連續成交至少跨幾個價位
+SWEEP_MIN_LEVELS = 3       # 掃單:這一波至少吃穿幾個價位
 SWEEP_MIN_VOL = 15         # 掃單:這一波至少幾口
-ABS_WIN = 20               # 吸收:觀察窗口(秒)
-ABS_MIN_VOL = 120          # 吸收:窗口內單邊主動量至少幾口
-ABS_K = 2.5                # 吸收:且要大於過去 10 分鐘同方向平均(每個窗口)的幾倍
-ABS_MOVE_PTS = 1.0         # 吸收:價格往攻擊方向最多只動這麼多點(動不了 = 被吸收)
-ABS_RANGE_PTS = 3.0        # 吸收:窗口內成交價範圍不超過這麼多點
+SWEEP_MAX_SEC = 3.0        # 掃單:整波不超過幾秒
+STOP_MIN_AGGR = 3          # 停損推測:這一波至少由幾張不同攻擊單組成(停損觸發會同時湧出多張市價單)
+STOP_MIN_VOL = 25          # 停損推測:至少幾口
+STOP_MIN_PTS = 2.0         # 停損推測:至少穿過幾點
+STOP_MAX_SEC = 2.5         # 停損推測:整波不超過幾秒(很快)
+STOP_LOOKBACK = 300        # 停損推測:往前看多少秒找「近期高/低點」,需突破它才算(停損通常擺在高低點外面)
 ICE_WIN = 60               # 冰山:觀察窗口(秒)
-ICE_MIN_VOL = 40           # 冰山:同價位被打掉至少幾口
+ICE_MIN_VOL = 40           # 冰山:同價位被打掉至少幾口(下限;實際門檻 = max(它, 近 10 分鐘各價位成交量平均 + ICE_SD_K 個標準差))
+ICE_SD_K = 2.0
 ICE_FACTOR = 3.0           # 冰山:且成交量 >= 該價位看得見的最大掛量的幾倍
 ICE_MIN_TRADES = 4         # 冰山:至少幾筆成交
-EXH_PUSH_VOL = 80          # 力竭:前一段推進的淨主動量至少幾口
+ICE_REFILL_SEC = 1.0       # 冰山:成交後這麼多秒內同價位又出現新掛單 = 一次「補單」
+ICE_MIN_REFILL = 2         # 冰山:補單次數 >= 這個值 → 可信度 2(有補單證據);沒有補單證據的要 1.5 倍門檻,可信度 1
+ABS_WIN = 20               # 吸收:觀察窗口(秒)
+ABS_MIN_VOL = 120          # 吸收:窗口內單邊主動量至少幾口
+ABS_SD_K = 2.0             # 吸收:且要高過過去 10 分鐘「各窗口單邊主動量」平均 + 幾個標準差
+ABS_DOM = 0.65             # 吸收:該方向要佔窗口總成交量的幾成以上
+ABS_MOVE_PTS = 1.0         # 吸收:價格往攻擊方向最多只動這麼多點(動不了 = 被吸收)
+ABS_RANGE_PTS = 3.0        # 吸收:窗口內成交價範圍不超過這麼多點
+EXH_PUSH_VOL = 80          # 力竭:前一段推進(60~15 秒前)的淨主動量至少幾口
 EXH_RISE_PTS = 4.0         # 力竭:前一段價格推進至少幾點
-EXH_TAIL_RATIO = 0.4       # 力竭:最近 15 秒的主動量(換算成同時間長度)降到推進段的幾成以下
-EVT_COOLDOWN = {"sweep": 3.0, "absorb": 45.0, "iceberg": 90.0, "exhaust": 60.0}   # 同類事件至少隔幾秒
+EXH_TAIL_RATIO = 0.4       # 力竭:最近 15 秒的主動量(換算成同時間長度)降到推進段平均的幾成以下
+EXH_LEG_RATIO = 0.7        # 力竭:推進段最後三分之一的量要小於最前三分之一的這個比例(後勁遞減)
+EVT_COOLDOWN = {"sweep": 3.0, "stop": 10.0, "absorb": 45.0, "iceberg": 90.0, "exhaust": 60.0}   # 同類事件至少隔幾秒
 # ================================
 
 _lock = threading.Lock()
@@ -85,7 +97,15 @@ events = deque()           # 偵測到的事件:dict(id, t, k, s, p, v, x)
 secs = deque()             # 每秒彙總的成交:[秒, 買量, 賣量, 首價, 末價, 高, 低, 價×量合計](約 12 分鐘)
 lvl_trades = {}            # (被動方是買盤?, 價位int) -> deque[(時間, 口數)]:冰山用
 lvl_vis = {}               # (是買盤?, 價位int) -> [看得見的最大掛量, 時間]
-_burst = None              # 目前這波同方向連續成交(掃單用)
+lvl_last_tr = {}           # (被動方是買盤?, 價位int) -> 最近一次成交時間
+lvl_refill = {}            # (是買盤?, 價位int) -> deque[補單時間]:成交後立刻又在同價位出現新掛單
+ord_stat = {}              # 被動委託 id -> [是買盤, 價位, 起始量, 最大量, 已成交量, 成交筆數, 首次成交, 最近成交, 補量次數]
+_ice_cand = set()          # 最近有成交的被動委託 id(只掃這些)
+_ice_hist = deque()        # (時間, 某價位 60 秒成交量):算冰山自適應門檻
+_ice_hist_t = 0.0
+_cur = None                # 目前這張攻擊單(同一 aggressor id 或同一批成交)
+_agg_seq = 0               # 沒有 aggressor id 時,用 is_execution_start 切批次
+_cl = None                 # 目前這一波同方向攻擊單(掃單/停損用)
 _last_evt = {}             # 事件冷卻:(kind, side/價位) -> 時間
 samples = deque()          # 每秒快照,用來算「近 60 秒」窗口
 trade_log = deque()        # 近 60 秒的成交紀錄:(時間, 買/賣, 價, 口數)
@@ -180,6 +200,11 @@ def handle_mbo(addon, alias, event_type, order_id, price_level, size_level):
                     _track("pull", o[0], o[1], o[2] - size_cts)
                 elif size_cts > o[2]:
                     _track("stack", o[0], o[1], size_cts - o[2])
+                if size_cts > o[2]:
+                    try:
+                        _note_resize(order_id, size_cts, time.time())
+                    except Exception:
+                        pass
                 o[1] = price_level
                 o[2] = size_cts
             return
@@ -206,16 +231,24 @@ def _remember(order_id, is_bid, price_level, size_cts):
             orders.clear()
     orders[order_id] = [is_bid, price_level, size_cts]
     _track("stack", is_bid, price_level, size_cts)
+    try:
+        _note_new_order(order_id, is_bid, price_level, size_cts, time.time())
+    except Exception:
+        pass
 
 
 # =========================== 訂單流事件偵測 ===========================
-# 全部是用成交(trades)與掛單簿事件推出來的「線索」,不是事實,也沒驗證過有預測力。
-#   sweep   掃單:一波同方向連續成交,吃穿多個價位
-#   absorb  吸收:一邊大量主動成交,價格卻推不動(被對面吃掉)
-#   iceberg 冰山:同一價位被打掉的量遠超過看得見的掛量(疑似隱藏掛單 / 補單)
-#   exhaust 力竭:一波推進之後,主動量突然萎縮、不再創新高/新低
-# side:sweep/exhaust 以「主動方」表示('buy' 買方主動 / 'sell' 賣方主動);
+# 全部是用成交(trades)與掛單簿(MBO)推出來的「線索」,不是事實,也沒驗證過有預測力。概念參考 Bookmap / ATAS 的公開說明:
+#   sweep   掃單:同方向的攻擊單在極短時間內吃穿多個價位(單張攻擊單跨價位,或連續幾張)
+#   stop    停損(推測):掃單的特例——由多張攻擊單同時湧出、很快、而且突破近期高/低點。
+#           Bookmap/ATAS 說是用 MBO 把「停損單觸發的成交」分出來,但 Python API 沒給這個旗標,所以這裡只能用上面的特徵推測。
+#   iceberg 冰山:同一價位被打掉的量遠超過看得見的掛量。x.conf=2 表示有補單證據(同一張委託被打掉量遠超它自己的顯示量,
+#           或成交後立刻在同價位又出現新掛單);x.conf=1 表示只有成交量證據。
+#   absorb  吸收:一邊大量主動成交(高過近 10 分鐘的平均 + 標準差、佔窗口 65% 以上),價格卻推不動。x.conf=2 = 同價附近同時有冰山證據。
+#   exhaust 力竭:一波推進後勁遞減(最後三分之一的量小於最前三分之一),最近 15 秒量萎縮、不再創新高/新低。
+# side:sweep/stop/exhaust 以「主動方」表示('buy' 買方主動 / 'sell' 賣方主動);
 #       absorb/iceberg 以「承接方」表示('buy' 買方在承接 / 'sell' 賣方在承接)。
+# 門檻是我們自己的初始值(Bookmap/ATAS 都沒公開精確演算法或預設值),要用真資料看過再調。
 
 
 def _emit(kind, side, price, vol, x=None, key=None, now=None):
@@ -250,39 +283,143 @@ def _sec_add(now, side, price, sz):
         secs.popleft()
 
 
-def _burst_end(now):
-    """結算一波連續同方向成交,夠大就記成掃單。"""
-    global _burst
-    b = _burst
-    _burst = None
-    if not b or len(b["lv"]) < SWEEP_LEVELS or b["vol"] < SWEEP_MIN_VOL:
+def _prior_extreme(t0, buy):
+    """t0 之前 STOP_LOOKBACK 秒(不含最後 1 秒)的最高/最低成交價;資料不到 120 秒回 None。"""
+    rows = [r for r in secs if t0 - STOP_LOOKBACK <= r[0] < t0 - 1]
+    if not rows or rows[-1][0] - rows[0][0] < 120:
+        return None
+    return max(r[5] for r in rows) if buy else min(r[6] for r in rows)
+
+
+def _cluster_end():
+    """結算一波同方向攻擊單:先判斷是不是停損(推測),不是再看是不是掃單。"""
+    global _cl
+    c = _cl
+    _cl = None
+    if not c:
         return
-    _emit("sweep", "buy" if b["side"] == "b" else "sell", b["last"], b["vol"],
-          {"p0": round(b["p0"], 2), "lv": len(b["lv"])}, key=b["side"], now=b["t1"])
+    buy = c["side"] == "b"
+    dur = c["t1"] - c["t0"]
+    nlv = len(c["lv"])
+    rng = c["hi"] - c["lo"]
+    side = "buy" if buy else "sell"
+    if nlv < SWEEP_MIN_LEVELS or c["vol"] < SWEEP_MIN_VOL or dur > SWEEP_MAX_SEC:
+        return
+    brk = None
+    if c["aggr"] >= STOP_MIN_AGGR and c["vol"] >= STOP_MIN_VOL and rng >= STOP_MIN_PTS and dur <= STOP_MAX_SEC:
+        ext = _prior_extreme(c["t0"], buy)
+        if ext is not None:
+            brk = (c["hi"] - ext) if buy else (ext - c["lo"])
+            # 起點要在近期高/低點附近(不是離很遠才衝到),而且確實突破它
+            near = (ext - c["p0"]) if buy else (c["p0"] - ext)
+            if brk > 0 and near <= 2.0:
+                _emit("stop", side, c["last"], c["vol"],
+                      {"aggr": c["aggr"], "lv": nlv, "p0": round(c["p0"], 2), "brk": round(brk, 2), "inf": 1},
+                      key=c["side"], now=c["t1"])
+                return
+    _emit("sweep", side, c["last"], c["vol"],
+          {"aggr": c["aggr"], "lv": nlv, "p0": round(c["p0"], 2)}, key=c["side"], now=c["t1"])
 
 
-def _on_trade_event(now, side, price_level, price_real, sz, is_bid_aggr):
-    """handle_trades 呼叫:更新每秒彙總、掃單波段、冰山的同價位累計。"""
-    global _burst
+def _exec_end():
+    """一張攻擊單結束:併進目前這一波,或另起一波。"""
+    global _cur, _cl
+    e = _cur
+    _cur = None
+    if not e:
+        return
+    if _cl and (_cl["side"] != e["side"] or e["t0"] - _cl["t1"] > SWEEP_GAP):
+        _cluster_end()
+    if not _cl:
+        _cl = {"side": e["side"], "t0": e["t0"], "t1": e["t1"], "p0": e["p0"], "last": e["last"], "vol": 0.0,
+               "lv": set(), "aggr": 0, "hi": e["hi"], "lo": e["lo"]}
+    _cl["t1"] = e["t1"]
+    _cl["last"] = e["last"]
+    _cl["vol"] += e["vol"]
+    _cl["lv"] |= e["lv"]
+    _cl["aggr"] += 1
+    _cl["hi"] = max(_cl["hi"], e["hi"])
+    _cl["lo"] = min(_cl["lo"], e["lo"])
+
+
+def _on_trade_event(now, side, price_level, price_real, sz, is_bid_aggr, start=False, aggr_id=None, pass_id=None):
+    """handle_trades 呼叫:更新每秒彙總、攻擊單/掃單波段、冰山的同價位與委託累計。"""
+    global _cur, _agg_seq
     if not EVENTS_ON:
         return
     _sec_add(now, side, price_real, sz)
-    if _burst and (_burst["side"] != side or now - _burst["t1"] > SWEEP_GAP):
-        _burst_end(now)
-    if not _burst:
-        _burst = {"side": side, "t0": now, "t1": now, "p0": price_real, "last": price_real, "vol": 0.0, "lv": set()}
-    _burst["t1"] = now
-    _burst["last"] = price_real
-    _burst["vol"] += sz
-    _burst["lv"].add(price_level)
-    # 冰山:主動買打的是賣盤(被動方 = 賣),主動賣打的是買盤(被動方 = 買)
-    key = (not is_bid_aggr, price_level)
-    dq = lvl_trades.get(key)
+    # --- 攻擊單分組:有 aggressor id 就用它;沒有就用 is_execution_start 切批次 ---
+    if aggr_id is not None:
+        key = ("id", str(aggr_id))
+    else:
+        if start or _cur is None:
+            _agg_seq += 1
+        key = ("seq", _agg_seq)
+    if _cur and (_cur["key"] != key or _cur["side"] != side or now - _cur["t1"] > SWEEP_GAP):
+        _exec_end()
+    if not _cur:
+        _cur = {"key": key, "side": side, "t0": now, "t1": now, "p0": price_real, "last": price_real,
+                "vol": 0.0, "lv": set(), "hi": price_real, "lo": price_real}
+    _cur["t1"] = now
+    _cur["last"] = price_real
+    _cur["vol"] += sz
+    _cur["lv"].add(price_level)
+    _cur["hi"] = max(_cur["hi"], price_real)
+    _cur["lo"] = min(_cur["lo"], price_real)
+    # --- 冰山:主動買打的是賣盤(被動方 = 賣),主動賣打的是買盤(被動方 = 買) ---
+    lk = (not is_bid_aggr, price_level)
+    dq = lvl_trades.get(lk)
     if dq is None:
         if len(lvl_trades) > 4000:
             lvl_trades.clear()
-        dq = lvl_trades[key] = deque()
+        dq = lvl_trades[lk] = deque()
     dq.append((now, sz))
+    lvl_last_tr[lk] = now
+    if len(lvl_last_tr) > 8000:
+        lvl_last_tr.clear()
+    if pass_id is not None:
+        pid = str(pass_id)
+        st = ord_stat.get(pid)
+        if st is not None:
+            st[4] += sz
+            st[5] += 1
+            if st[6] is None:
+                st[6] = now
+            st[7] = now
+            _ice_cand.add(pid)
+
+
+def _note_new_order(order_id, is_bid, price_level, size_cts, now):
+    """handle_mbo 呼叫:新掛的被動單。記起始量;若剛在同價位成交過,算一次「補單」。"""
+    if not EVENTS_ON:
+        return
+    pid = str(order_id)
+    if len(ord_stat) > 60000:
+        for k in list(ord_stat)[:20000]:
+            ord_stat.pop(k, None)
+            _ice_cand.discard(k)
+    ord_stat[pid] = [is_bid, price_level, size_cts, size_cts, 0.0, 0, None, None, 0]
+    k = (is_bid, price_level)
+    lt = lvl_last_tr.get(k)
+    if lt is not None and now - lt <= ICE_REFILL_SEC:
+        dq = lvl_refill.get(k)
+        if dq is None:
+            if len(lvl_refill) > 4000:
+                lvl_refill.clear()
+            dq = lvl_refill[k] = deque()
+        dq.append(now)
+
+
+def _note_resize(order_id, new_size, now):
+    """handle_mbo 呼叫:委託改量。成交過之後量又變大 = 這張單補量(顯示量重新補滿)。"""
+    if not EVENTS_ON:
+        return
+    st = ord_stat.get(str(order_id))
+    if st is None:
+        return
+    if st[5] > 0 and new_size > st[3] * 0.5 and st[7] is not None and now - st[7] <= 5.0:
+        st[8] += 1
+    st[3] = max(st[3], new_size)
 
 
 def _win(now, a, b):
@@ -294,13 +431,23 @@ def _win(now, a, b):
             max(r[5] for r in rows), min(r[6] for r in rows), sum(r[7] for r in rows))
 
 
-def _baseline(now, side_idx):
-    """過去 10 分鐘(不含最近 ABS_WIN 秒)單邊主動量,換算成每個 ABS_WIN 窗口的平均;資料不到 5 分鐘就回 None。"""
+def _abs_threshold(now, side_idx):
+    """吸收門檻:過去 10 分鐘(不含最近 ABS_WIN 秒)各個 ABS_WIN 秒窗口的單邊主動量,平均 + ABS_SD_K 個標準差;
+    資料不到 5 分鐘回 None(這時只用 ABS_MIN_VOL 的下限,並且不發吸收)。"""
     rows = [r for r in secs if now - 620 <= r[0] < now - ABS_WIN]
     if len(rows) < 150:
         return None
-    span = max(1.0, rows[-1][0] - rows[0][0] + 1)
-    return sum(r[side_idx] for r in rows) / span * ABS_WIN
+    t_lo = rows[0][0] // ABS_WIN
+    t_hi = rows[-1][0] // ABS_WIN
+    n = int(t_hi - t_lo + 1)
+    if n < 8:
+        return None
+    sums = [0.0] * n
+    for r in rows:
+        sums[int(r[0] // ABS_WIN - t_lo)] += r[side_idx]
+    m = sum(sums) / n
+    sd = (sum((x - m) ** 2 for x in sums) / n) ** 0.5
+    return max(ABS_MIN_VOL, m + ABS_SD_K * sd)
 
 
 def _detect_absorb(now):
@@ -310,22 +457,66 @@ def _detect_absorb(now):
     bv, sv, p_first, p_last, hi, lo, pv = w
     if hi - lo > ABS_RANGE_PTS:
         return
+    tot = bv + sv
     for idx, vol, side_aggr in ((2, sv, "s"), (1, bv, "b")):
-        base = _baseline(now, idx)
-        thr = max(ABS_MIN_VOL, (ABS_K * base) if base else 0.0)
-        if vol < thr:
+        thr = _abs_threshold(now, idx)
+        if thr is None or vol < thr or vol < ABS_DOM * tot:
             continue
         moved = (p_last - p_first) if side_aggr == "b" else (p_first - p_last)     # 往攻擊方向走了幾點
         if moved > ABS_MOVE_PTS:
             continue
-        tot = bv + sv
         vwap = pv / tot if tot else p_last
         # 賣方主動被吸收 = 買方在承接('buy');買方主動被吸收 = 賣方在承接('sell')
-        _emit("absorb", "buy" if side_aggr == "s" else "sell", vwap, vol,
-              {"win": ABS_WIN, "moved": round(moved, 2), "base": round(base, 1) if base else None}, now=now)
+        side = "buy" if side_aggr == "s" else "sell"
+        conf = 1
+        for e in events:
+            if e["k"] == "iceberg" and (e.get("x") or {}).get("conf") == 2 and e["s"] == side and now - e["t"] <= ABS_WIN + 10 and abs(e["p"] - vwap) <= 1.5:
+                conf = 2
+                break
+        _emit("absorb", side, vwap, vol,
+              {"win": ABS_WIN, "moved": round(moved, 2), "thr": round(thr, 1), "conf": conf}, now=now)
+
+
+def _ice_threshold(now):
+    """冰山成交量門檻:每分鐘取一次「各價位 60 秒成交量」樣本,近 10 分鐘 平均 + ICE_SD_K×標準差;樣本不足就用 1.5×下限。"""
+    global _ice_hist_t
+    if now - _ice_hist_t >= 60:
+        _ice_hist_t = now
+        for k, dq in lvl_trades.items():
+            v = sum(x[1] for x in dq if x[0] >= now - ICE_WIN)
+            if v > 0:
+                _ice_hist.append((now, v))
+    while _ice_hist and _ice_hist[0][0] < now - 600:
+        _ice_hist.popleft()
+    if len(_ice_hist) < 30:
+        return ICE_MIN_VOL * 1.5
+    vals = [x[1] for x in _ice_hist]
+    m = sum(vals) / len(vals)
+    sd = (sum((x - m) ** 2 for x in vals) / len(vals)) ** 0.5
+    return max(ICE_MIN_VOL, m + ICE_SD_K * sd)
+
+
+def _held(passive_bid, pl):
+    """價位被打穿(對面最佳價越過了它)就不算「守住」。"""
+    ref = best_bid if passive_bid else best_ask
+    return not (ref is not None and ((passive_bid and ref < pl) or ((not passive_bid) and ref > pl)))
 
 
 def _detect_iceberg(now):
+    thr = _ice_threshold(now)
+    done = set()
+    # (一)有委託 id 的證據:同一張被動單被打掉的量遠超它自己的顯示量
+    for pid in list(_ice_cand):
+        st = ord_stat.get(pid)
+        if st is None or st[7] is None or now - st[7] > ICE_WIN:
+            _ice_cand.discard(pid)
+            continue
+        is_bid, pl, init, mx, ex, nf, t0, t1, rf = st
+        if ex >= max(ICE_MIN_VOL, ICE_FACTOR * mx) and nf >= 3 and (rf >= 1 or ex >= ICE_FACTOR * max(init, mx)) and _held(is_bid, pl):
+            if _emit("iceberg", "buy" if is_bid else "sell", pl * _pips, ex,
+                     {"vis": round(mx, 1), "n": nf, "refill": rf, "conf": 2, "by": "id"}, key=(is_bid, pl), now=now):
+                done.add((is_bid, pl))
+    # (二)用價位統計:同價位 60 秒內被打掉的量遠超看得見的掛量;有補單證據可信度 2,否則要 1.5 倍門檻、可信度 1
     cut = now - ICE_WIN
     for key in list(lvl_trades):
         dq = lvl_trades[key]
@@ -334,34 +525,46 @@ def _detect_iceberg(now):
         if not dq:
             del lvl_trades[key]
             continue
+        if key in done:
+            continue
         vol = sum(x[1] for x in dq)
-        if vol < ICE_MIN_VOL or len(dq) < ICE_MIN_TRADES:
+        if vol < thr or len(dq) < ICE_MIN_TRADES:
             continue
         vis = lvl_vis.get(key)
         vis_max = vis[0] if vis and now - vis[1] <= ICE_WIN * 2 else 0.0
-        if vol < max(ICE_MIN_VOL, ICE_FACTOR * vis_max):
+        if vis_max <= 0 or vol < ICE_FACTOR * vis_max:      # 不知道看得見的掛量就沒辦法說「藏了多少」
+            continue
+        rq = lvl_refill.get(key)
+        while rq and rq[0] < cut:
+            rq.popleft()
+        refills = len(rq) if rq else 0
+        conf = 2 if refills >= ICE_MIN_REFILL else 1
+        if conf == 1 and vol < 1.5 * thr:
             continue
         passive_bid, pl = key
-        # 價位已經被打穿(對面最佳價越過了它)就不算「守住」
-        ref = best_bid if passive_bid else best_ask
-        if ref is not None and ((passive_bid and ref < pl) or ((not passive_bid) and ref > pl)):
+        if not _held(passive_bid, pl):
             continue
         _emit("iceberg", "buy" if passive_bid else "sell", pl * _pips, vol,
-              {"vis": round(vis_max, 1), "n": len(dq)}, key=key, now=now)
+              {"vis": round(vis_max, 1), "n": len(dq), "refill": refills, "conf": conf, "by": "lvl"}, key=key, now=now)
 
 
 def _detect_exhaust(now):
-    push = _win(now, 50, 15)
+    push = _win(now, 60, 15)
     tail = _win(now, 15, 0)
     if not push:
         return
     pb, ps, p0, p1, phi, plo, _ = push
     tb, ts_, _, t_last, thi, tlo, _ = tail if tail else (0.0, 0.0, p1, p1, p1, p1, 0.0)
-    scale = 15.0 / 35.0
-    # 買方力竭:推進段淨買、價格上推,最近 15 秒買量萎縮且沒再創高
-    if pb - ps >= EXH_PUSH_VOL and phi - p0 >= EXH_RISE_PTS and tb <= EXH_TAIL_RATIO * pb * scale and thi <= phi + 0.25:
+    legs = [_win(now, 60 - 15 * i, 45 - 15 * i) for i in range(3)]      # 推進段的前/中/後三分之一
+    if not legs[0] or not legs[2]:
+        return
+    scale = 15.0 / 45.0
+    # 買方力竭:推進段淨買、價格上推,後勁遞減,最近 15 秒買量萎縮且沒再創高
+    if (pb - ps >= EXH_PUSH_VOL and phi - p0 >= EXH_RISE_PTS and tb <= EXH_TAIL_RATIO * pb * scale
+            and legs[2][0] <= EXH_LEG_RATIO * legs[0][0] and thi <= phi + 0.25):
         _emit("exhaust", "buy", phi, pb - ps, {"rise": round(phi - p0, 2), "tail": round(tb, 1)}, now=now)
-    elif ps - pb >= EXH_PUSH_VOL and p0 - plo >= EXH_RISE_PTS and ts_ <= EXH_TAIL_RATIO * ps * scale and tlo >= plo - 0.25:
+    elif (ps - pb >= EXH_PUSH_VOL and p0 - plo >= EXH_RISE_PTS and ts_ <= EXH_TAIL_RATIO * ps * scale
+            and legs[2][1] <= EXH_LEG_RATIO * legs[0][1] and tlo >= plo - 0.25):
         _emit("exhaust", "sell", plo, ps - pb, {"fall": round(p0 - plo, 2), "tail": round(ts_, 1)}, now=now)
 
 
@@ -369,9 +572,14 @@ def _detect_events(now):
     """每秒呼叫一次(在 _lock 內)。任何偵測器出錯都只跳過那個,不影響主流程。"""
     if not EVENTS_ON:
         return
-    if _burst and now - _burst["t1"] > SWEEP_GAP:
-        _burst_end(now)
-    for fn in (_detect_absorb, _detect_iceberg, _detect_exhaust):
+    try:
+        if _cur and now - _cur["t1"] > SWEEP_GAP:
+            _exec_end()
+        if _cl and now - _cl["t1"] > SWEEP_GAP:
+            _cluster_end()
+    except Exception:
+        pass
+    for fn in (_detect_iceberg, _detect_absorb, _detect_exhaust):
         try:
             fn(now)
         except Exception:
@@ -398,7 +606,8 @@ def handle_trades(addon, alias, price_level, size_level, is_otc, is_bid, is_exec
         else:
             tr_sell += sz
         try:
-            _on_trade_event(time.time(), "b" if is_bid else "s", price_level, price_level * _pips, sz, bool(is_bid))
+            _on_trade_event(time.time(), "b" if is_bid else "s", price_level, price_level * _pips, sz, bool(is_bid),
+                            start=bool(is_execution_start), aggr_id=aggressor_order_id, pass_id=passive_order_id)
         except Exception:
             pass
 

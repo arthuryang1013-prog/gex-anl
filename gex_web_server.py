@@ -2446,7 +2446,7 @@ def api_flowevents(con, q):
         except Exception:
             continue
         t = e.get("t")
-        if isinstance(t, (int, float)) and lo <= t <= hi and e.get("k") in ("sweep", "absorb", "iceberg", "exhaust"):
+        if isinstance(t, (int, float)) and lo <= t <= hi and e.get("k") in ("sweep", "stop", "absorb", "iceberg", "exhaust"):
             out.append(e)
     out.sort(key=lambda e: e["t"])
     return dict(ok=True, events=out[-800:], n=len(out))

@@ -59,7 +59,15 @@
 - **AI 導師(原始數據版)**:`ai_mentor.py` + `/api/aimentor`,**手動觸發**(導師頁按鈕)。只餵原始數據(逐履約價 OI/量/gamma、1/5 分 K、訂單流每分鐘歷史、大單),不給規則版的方向/分數/flip/牆;回答最後必須附 `<verdict>` 判定區塊,由程式解析並存進 `mentor_log`(kind='ai'),用同一套 ±40 點 / 30 分鐘判對錯,和規則版、永遠做多/做空並排。每次呼叫約 1–3 萬 token 輸入,有 45 秒冷卻;逾時/輸出上限用 config 的 `ai_mentor_timeout_sec`、`ai_mentor_max_tokens`(預設 240 秒 / 8000)。**只用假的 DeepSeek 測過;AI 判斷好不好要靠累積的命中率,沒有驗證前不要宣稱有預測力。**
 - **orderflow 逐秒欄位是「近 60 秒滾動累計」**(bridge `WINDOW_SEC=60`,每秒送一次),不是增量。歷史檔逐秒加總會放大約 60 倍;一律用 `orderflow_minutes.minute_rows()`(每分鐘取最後一筆)。已修:訂單流動能副圖、AI 導師每分鐘表、導師 orderflow 摘要;這是讀程式碼發現的,還沒用真資料核對量級。
 - **訊號存檔與逐訊號驗證**:網站每次算盤面指標,會把各訊號的值(-1~+1)存進 `web_cache.sqlite` 的 `thesis.sig_json`;部署後累積幾天,用 `signal_outcome.py`(±40 點 / 30 分鐘)看每個訊號的命中率。舊紀錄沒有這欄,無法回補。樣本少時誤差很大,多訊號同時比較會有偶然高分,**沒有連續幾天、足夠樣本前,不要調權重或宣稱某訊號有效**。
-- **訂單流事件(吸收 / 冰山 / 力竭 / 掃單)**:`orderflow_bridge.py` 用成交與掛單簿偵測,封包多一個 `events`;`orderflow_receiver.py` 去重後存 `orderflow_events.jsonl`(留 2 天,已 gitignore);`/api/flowevents` 供熱圖「訂單流事件」圖層畫在對應時間與價位(取代舊的左緣大單/掃單標記)。**偵測門檻(`ABS_*`、`ICE_*`、`EXH_*`、`SWEEP_*`)是初始猜測,只用假行情測過;要看過真實盤面再調,沒有驗證前不要宣稱有預測力。** 更新 bridge 要把新版整份重貼進 Windows 的 Bookmap 並重建,盤外做;receiver 要 `systemctl restart orderflow-receiver`。
+- **訂單流事件(掃單 / 停損 / 冰山 / 吸收 / 力竭)**:`orderflow_bridge.py` 用成交與掛單簿(MBO)偵測,封包多一個 `events`;`orderflow_receiver.py` 去重後存 `orderflow_events.jsonl`(留 2 天,已 gitignore);`/api/flowevents` 供熱圖「訂單流事件」圖層畫在對應時間與價位。概念參考 Bookmap「Stops & Icebergs」與 ATAS MBO 指標的**公開說明**(兩家都沒公開精確演算法與預設數值,所以不是複製,門檻是我們自己的初始值):
+  - 掃單:同方向攻擊單(用 `aggressor_order_id` 分張;沒有 id 就用 `is_execution_start` 切批次)在 0.5 秒間隔內併成一波,吃穿 ≥3 價位、≥15 口、≤3 秒。
+  - **停損是「推測」**:Bookmap/ATAS 用 MBO 分出停損單觸發的成交,但 Python API 沒有這個旗標。這裡只用特徵猜:一波由 ≥3 張不同攻擊單組成、≥25 口、≥2 點、≤2.5 秒,且突破前 5 分鐘高/低點(資料不到 120 秒不判)。事件帶 `x.inf=1`,畫面標「停損(推測)」。命中這些條件的掃單歸為停損,不重複算掃單。
+  - 冰山:(一)`passive_order_id` 對上 MBO 的同一張委託,被打掉量 ≥3 倍它的顯示量且補過量 → `x.conf=2, by=id`;(二)價位統計:同價位 60 秒被打掉量 ≥ max(40, 近 10 分鐘各價位成交量平均+2 標準差)且 ≥3 倍看得見的掛量、價位守住;成交後 1 秒內同價位又出現新掛單 ≥2 次 → `conf=2`(補單證據),沒有補單證據要 1.5 倍門檻、`conf=1`。不知道看得見的掛量就不判。
+  - 吸收:20 秒窗口單邊主動量 ≥ max(120, 近 10 分鐘各窗口平均+2 標準差)、佔窗口 65% 以上、價格往攻擊方向 ≤1 點、價格範圍 ≤3 點;前面不到 5 分鐘資料不發;同價附近有 `conf=2` 冰山則 `conf=2`。
+  - 力竭:推進段(60~15 秒前)淨量 ≥80、推進 ≥4 點,最後三分之一的量 ≤ 最前三分之一的 0.7 倍,最近 15 秒量萎縮且不創新高/低。
+  - **基準線只用 bridge 啟動後的滾動 10 分鐘,不是 Bookmap 那種「同時段」基準**;bridge 剛啟動 5~10 分鐘內吸收/冰山自適應門檻不完整。
+  - `aggressor_order_id` / `passive_order_id` 依 Bookmap 文件只在「某些 MBO 情況」提供,**實際有沒有給、冰山能不能用委託 id 對上,要看真資料**;沒有 id 時退回價位/批次統計(可信度較低)。
+  - 測試:`tests/test_orderflow_events.py`(假行情正反例 + 4 組隨機行情 1 小時零誤報)。**只證明邏輯與不會被噪音觸發,不證明抓得到真實事件、更不證明有預測力**;門檻要看過真實盤面再調。更新 bridge 要把新版整份重貼進 Windows 的 Bookmap(保留 `MAC_IP`、`TOKEN`)並重建,盤外做;receiver 與 web 要 `systemctl restart orderflow-receiver gex-web`。
 - 熱圖 K 線上的導師標記只標 AI 導師的結論;規則版(盤面指標)不再標 #。
 - **K 棒由 gex-web 另開的程序抓**(`bars_process`,IB clientId 31),不是收集器。2026-10-29 發生過:IBKR 夜間重置時即時訂閱死了(Error 10182)但 API 連線沒斷,程序一直以為連著,K 棒停了約 10 小時。已加看門狗(開市時間內 `BARS_STALE_SEC` 秒沒更新或收到 10182 就重連);**只用假的 ib_async 測過**。救急:`systemctl restart gex-web`(會重新訂閱並補 4 天歷史),不影響收集器。
 - 規則版導師已改稱「盤面指標」:價格動量權重最大(3),方向容易跟著走勢跑,只當參考。

@@ -55,15 +55,15 @@ def build(d, of_mode="live"):
     # 訂單流事件(吸收/冰山/力竭/掃單),時間分散在最近 2 小時,價位貼近 K 線
     ev_path = os.path.join(d, "orderflow_events.jsonl")
     kinds = [("absorb", "buy"), ("iceberg", "sell"), ("exhaust", "buy"), ("sweep", "sell"), ("sweep", "buy"), ("absorb", "sell"),
-             ("iceberg", "buy"), ("exhaust", "sell")]
+             ("iceberg", "buy"), ("exhaust", "sell"), ("stop", "buy")]
     with open(ev_path, "w") as f:
         for i, (k, sd) in enumerate(kinds * 3):
             t = now - 6900 + i * 280
             px_ = [b for b in bars if b[0] <= t][-1][4]
             e = dict(id=f"{i}-{k}", t=t, k=k, s=sd, p=round(px_ + (3 if k == "exhaust" and sd == "buy" else -3 if k == "exhaust" else 0), 2), v=40 + (i * 37) % 260)
-            if k == "sweep": e["x"] = dict(p0=round(px_ - (14 if sd == "buy" else -14), 2), lv=5)
-            if k == "absorb": e["x"] = dict(win=20, moved=0.5, base=60.0)
-            if k == "iceberg": e["x"] = dict(vis=6.0, n=9)
+            if k in ("sweep", "stop"): e["x"] = dict(p0=round(px_ - (14 if sd == "buy" else -14), 2), lv=5, aggr=4, brk=1.5)
+            if k == "absorb": e["x"] = dict(win=20, moved=0.5, thr=150.0, conf=2)
+            if k == "iceberg": e["x"] = dict(vis=6.0, n=9, refill=3, conf=2, by="lvl")
             if k == "exhaust": e["x"] = dict(rise=6.0, tail=8.0)
             f.write(json.dumps(e) + "\n")
     # AI 導師的紀錄(K 線上只標 AI 導師的結論,規則版的 # 不再標)

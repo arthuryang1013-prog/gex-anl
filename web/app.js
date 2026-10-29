@@ -2145,7 +2145,7 @@ const evPrim = new EventPrim(); candle.attachPrimitive(evPrim);
 /* ---- orderflow 事件:吸收 / 冰山 / 力竭 / 掃單。bridge 偵測(推測式線索),畫在熱圖對應的時間與價位 ----
    顏色語意:綠 = 偏多含意、紅 = 偏空含意;大小 = 口數。形狀:盾牌=吸收、菱形+虛線=冰山、圓圈+箭頭=力竭、粗線箭頭=掃單 */
 let flowEvents = [], feHits = [];
-const FE = { sweep: { name: '掃單', glyph: '掃' }, absorb: { name: '吸收', glyph: '吸' }, iceberg: { name: '冰山', glyph: '冰' }, exhaust: { name: '力竭', glyph: '竭' } };
+const FE = { sweep: { name: '掃單', glyph: '掃' }, stop: { name: '停損(推測)', glyph: '停' }, absorb: { name: '吸收', glyph: '吸' }, iceberg: { name: '冰山', glyph: '冰' }, exhaust: { name: '力竭', glyph: '竭' } };
 const feBull = (e) => (e.k === 'exhaust' ? e.s === 'sell' : e.s === 'buy');
 const feR = (e) => 6.5 + Math.min(4.5, Math.log10(Math.max(10, e.v) / 10) * 3.2);
 class FlowEvPrim {
@@ -2172,14 +2172,15 @@ class FlowEvPrim {
         const X = x * hr, Y = y * vr, R = r * hr;
         ctx.save();
         ctx.fillStyle = col; ctx.strokeStyle = col;
-        if (e.k === 'sweep') {
+        if (e.k === 'sweep' || e.k === 'stop') {
+          const isStop = e.k === 'stop';
           const y0 = ser.priceToCoordinate((e.x && e.x.p0) || e.p); const Y0 = (y0 == null ? y : y0) * vr;
           const dir = Y < Y0 ? -1 : 1;                                       // 往上掃 = 畫面上 Y 變小
           ctx.globalAlpha = 0.16; ctx.lineWidth = 8 * hr; ctx.beginPath(); ctx.moveTo(X, Y0); ctx.lineTo(X, Y); ctx.stroke();
-          ctx.globalAlpha = 0.95; ctx.lineWidth = 2.6 * hr; ctx.beginPath(); ctx.moveTo(X, Y0); ctx.lineTo(X, Y - dir * 4 * hr); ctx.stroke();
+          ctx.globalAlpha = 0.95; ctx.lineWidth = 2.6 * hr; if (isStop) ctx.setLineDash([5 * hr, 3 * hr]); ctx.beginPath(); ctx.moveTo(X, Y0); ctx.lineTo(X, Y - dir * 4 * hr); ctx.stroke(); ctx.setLineDash([]);
           ctx.beginPath(); ctx.moveTo(X, Y); ctx.lineTo(X - 5 * hr, Y - dir * 8 * hr); ctx.lineTo(X + 5 * hr, Y - dir * 8 * hr); ctx.closePath(); ctx.fill();
           ctx.font = `700 ${9.5 * hr}px -apple-system,"PingFang TC","Noto Sans TC",sans-serif`; ctx.textAlign = 'left';
-          ctx.globalAlpha = 0.95; ctx.fillText('掃 ' + e.v, X + 7 * hr, (Y + Y0) / 2);
+          ctx.globalAlpha = 0.95; ctx.fillText((isStop ? '停? ' : '掃 ') + e.v, X + 7 * hr, (Y + Y0) / 2);
         } else {
           ctx.lineWidth = 1.6 * hr;
           if (e.k === 'iceberg') {                                           // 價位虛線 + 菱形
@@ -2209,9 +2210,10 @@ class FlowEvPrim {
 const flowEvPrim = new FlowEvPrim(); candle.attachPrimitive(flowEvPrim); window.__flm = flowEvPrim; window.__feHits = () => feHits; window.__feN = () => flowEvents.length;
 function feText(e) {
   const x = e.x || {}, buy = e.s === 'buy', f1 = (v) => (v == null ? '—' : (+v).toFixed(1));
+  if (e.k === 'stop') return `${buy ? '買方' : '賣方'}一波由 ${x.aggr != null ? x.aggr : '多'} 張攻擊單在極短時間內從 ${f1(x.p0)} 衝到 ${f1(e.p)}(共 ${e.v} 口),並${buy ? '突破' : '跌破'}近期${buy ? '高' : '低'}點 ${f1(x.brk)} 點 → 疑似停損單被觸發。這是依特徵推測;API 沒有停損旗標,可能只是一般的突破追價。`;
   if (e.k === 'sweep') return `${buy ? '買方' : '賣方'}主動單連續吃穿 ${x.lv != null ? x.lv : '多'} 個價位,共 ${e.v} 口,從 ${f1(x.p0)} 推到 ${f1(e.p)}。常見於急迫的追價或停損被掃出。`;
-  if (e.k === 'absorb') return `短時間內${buy ? '賣' : '買'}方主動成交 ${e.v} 口${x.base ? `(約為平常的 ${(e.v / x.base).toFixed(1)} 倍)` : ''},價格往攻擊方向只走了 ${f1(x.moved)} 點 → 疑似${buy ? '買' : '賣'}方在 ${f1(e.p)} 附近承接。`;
-  if (e.k === 'iceberg') return `${f1(e.p)} 這一檔的${buy ? '買' : '賣'}盤被打掉 ${e.v} 口(${x.n != null ? x.n : '多'} 筆),看得見的掛量最多只有 ${f1(x.vis)} 口,價位還守著 → 疑似有隱藏的大單在補單。`;
+  if (e.k === 'absorb') return `短時間內${buy ? '賣' : '買'}方主動成交 ${e.v} 口${x.thr ? `(門檻 ${f1(x.thr)} 口,為近 10 分鐘平均+標準差)` : ''},價格往攻擊方向只走了 ${f1(x.moved)} 點 → 疑似${buy ? '買' : '賣'}方在 ${f1(e.p)} 附近承接${x.conf === 2 ? '(同價附近另有冰山證據)' : ''}。`;
+  if (e.k === 'iceberg') return `${f1(e.p)} 這一檔的${buy ? '買' : '賣'}盤被打掉 ${e.v} 口(${x.n != null ? x.n : '多'} 筆),看得見的掛量最多只有 ${f1(x.vis)} 口,價位還守著 → ${x.conf === 2 ? (x.by === 'id' ? '同一張委託被打掉的量遠超它的顯示量(證據較強)' : '成交後同價位立刻又出現新掛單(有補單證據)') : '只有成交量證據(較弱)'}。`;
   return `${buy ? '買' : '賣'}方一波推了 ${f1(x.rise != null ? x.rise : x.fall)} 點、淨主動 ${e.v} 口,最近 15 秒主動量只剩 ${f1(x.tail)} 口、也沒再創${buy ? '高' : '低'} → 這波力道疑似用完。`;
 }
 function feTipHtml(e) {
@@ -2224,7 +2226,7 @@ function feTipHtml(e) {
   const wrap = $('#chart').parentElement; wrap.style.position = wrap.style.position || 'relative';
   const tip = document.createElement('div'); tip.className = 'feTip'; tip.hidden = true; document.body.appendChild(tip);
   const lg = document.createElement('div'); lg.className = 'feLegend'; lg.id = 'feLegend'; lg.hidden = true;
-  lg.innerHTML = '<span class="feG"><i>吸</i>吸收</span><span class="feG"><i class="dm">冰</i>冰山</span><span class="feG"><i class="ci">竭</i>力竭</span><span class="feG"><i class="sw">掃</i>掃單</span><em>綠=偏多含意 紅=偏空含意</em>';
+  lg.innerHTML = '<span class="feG"><i>吸</i>吸收</span><span class="feG"><i class="dm">冰</i>冰山</span><span class="feG"><i class="ci">竭</i>力竭</span><span class="feG"><i class="sw">掃</i>掃單</span><span class="feG"><i class="sw">停</i>停損(推測)</span><em>綠=偏多含意 紅=偏空含意</em>';
   wrap.appendChild(lg);
   window.__feTip = tip;
   chart.subscribeCrosshairMove((p) => {

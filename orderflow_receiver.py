@@ -65,7 +65,7 @@ def _store_events(evs):
                 eid = str(e.get("id") or "")
                 if not eid or eid in _ev_seen:
                     continue
-                if not isinstance(e.get("t"), (int, float)) or not isinstance(e.get("p"), (int, float)) or e.get("k") not in ("sweep", "absorb", "iceberg", "exhaust"):
+                if not isinstance(e.get("t"), (int, float)) or not isinstance(e.get("p"), (int, float)) or e.get("k") not in ("sweep", "stop", "absorb", "iceberg", "exhaust"):
                     continue
                 _ev_seen[eid] = 1
                 new.append({k: e[k] for k in ("id", "t", "k", "s", "p", "v", "x") if k in e})
