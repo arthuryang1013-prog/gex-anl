@@ -16,6 +16,8 @@ NY = ZoneInfo("America/New_York")
 ap = argparse.ArgumentParser()
 ap.add_argument("--db", default="nq_gex.sqlite")
 ap.add_argument("--days", type=int, default=10)
+ap.add_argument("--session", action="store_true", help="只看你的交易時段(美東 09:30–13:30)的快照")
+ap.add_argument("--detail", default=None, metavar="YYYY-MM-DD", help="列出某個美東日每 30 分鐘的比例,看漂移出現在一天中的哪個時段")
 a = ap.parse_args()
 con = sqlite3.connect(a.db)
 
@@ -27,7 +29,28 @@ if df.empty:
 df["ratio"] = df["strike_nq"] / df["strike"]
 g = df.groupby(["src", "ts"]).agg(spot=("spot", "first"), ratio=("ratio", "median"),
                                   F=("F", lambda x: float(np.median(x))), n=("strike", "size")).reset_index()
-g["day"] = pd.to_datetime(g["ts"], utc=True).dt.tz_convert(NY).dt.date
+_et = pd.to_datetime(g["ts"], utc=True).dt.tz_convert(NY)
+g["day"] = _et.dt.date
+g["hm"] = _et.dt.hour * 60 + _et.dt.minute
+if a.detail:
+    dd = dt.date.fromisoformat(a.detail)
+    print(f"{dd} 每 30 分鐘:比例相對『當日 09:30–13:30 中位數』的偏離(換成 NQ 點數;正=比例變大=同一個 NDX/QQQ 履約價換到 NQ 座標會更高)")
+    for src in ("NDX", "QQQ"):
+        x = g[(g.src == src) & (g.day == dd)]
+        ses = x[(x.hm >= 570) & (x.hm <= 810)]
+        if x.empty or ses.empty:
+            print(f"  {src}:這天沒有足夠資料(快照 {len(x)},交易時段內 {len(ses)})"); continue
+        ref = ses.ratio.median()
+        print(f"  {src}(參考比例 {ref:.5f};快照 {len(x)})  時段(ET)  快照數  偏離中位數(NQ點)  區間內最大-最小(NQ點)")
+        x = x.assign(b=(x.hm // 30) * 30)
+        for b, y in x.groupby("b"):
+            off = (y.ratio.median() / ref - 1) * y.spot.mean()
+            rng = (y.ratio.max() - y.ratio.min()) / ref * y.spot.mean()
+            print(f"      {b // 60:02d}:{b % 60:02d}   {len(y):>6}   {off:>+16.1f}   {rng:>20.1f}")
+    sys.exit(0)
+if a.session:
+    g = g[(g.hm >= 570) & (g.hm <= 810)]
+    print("(只含美東 09:30–13:30 的快照)")
 days = sorted(g["day"].unique())[-a.days:]
 print(f"QQQ/NDX → NQ 換算比例的日內漂移(最近 {len(days)} 個美東日)")
 print("說明:'漂移' = 當天比例最大值與最小值的差,換成 NQ 點數(在現價附近)。越小代表「比例不變」的假設越安全。\n")
