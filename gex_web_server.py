@@ -58,6 +58,7 @@ NY = ZoneInfo("America/New_York")
 PORTS_TO_TRY = [4001, 4002, 7497, 7496]
 BARS_CLIENT_ID = 31
 BARS_HISTORY = "4 D"
+BARS_STALE_SEC = 240        # 看門狗:CME 開市時間內超過這麼多秒沒有新 K 棒更新,就視為即時訂閱已死,斷線重連
 MAX_COLS = 400            # heat-map columns sent to the page (snapshots are thinned evenly above this)
 MAX_LEVEL_FRAMES = 120    # snapshots for which wall / flip lines are computed (thinned evenly above this)
 BAND = 0.05               # heat map covers price +/- 5 %
@@ -2542,6 +2543,21 @@ def bars_process(db_path: str):
         time.sleep(15)
 
 
+def bars_market_open(now_ny):
+    """NQ(CME Globex)是否在交易時間:週一到週四 17:00–18:00 ET 休市,週五 17:00 ET 到週日 18:00 ET 休市。
+    不含假日(假日時看門狗可能每隔幾分鐘重連一次,無害)。"""
+    wd, hm = now_ny.weekday(), now_ny.hour * 60 + now_ny.minute
+    if wd == 5:                      # 週六整天
+        return False
+    if wd == 4 and hm >= 17 * 60:    # 週五 17:00 後
+        return False
+    if wd == 6 and hm < 18 * 60:     # 週日 18:00 前
+        return False
+    if wd in (0, 1, 2, 3) and 17 * 60 <= hm < 18 * 60:
+        return False
+    return True
+
+
 async def _bars_session(db_path: str):
     from ib_async import IB, Future
     ib = IB()
@@ -2580,9 +2596,25 @@ async def _bars_session(db_path: str):
         def on_update(bs, has_new):
             save([row(b) for b in bs[-2:]])
 
-        bars.updateEvent += on_update
+        st = {"last": time.time(), "dead": False}
+
+        def on_update_wd(bs, has_new):
+            st["last"] = time.time()
+            on_update(bs, has_new)
+
+        def on_error(reqId, errorCode, errorString, contract=None):
+            if errorCode == 10182:           # 「Failed to request live updates」:即時訂閱已斷,但 API 連線還在(2026-10-29 實際發生過)
+                st["dead"] = True
+
+        bars.updateEvent += on_update_wd
+        ib.errorEvent += on_error
         while ib.isConnected():
             await asyncio.sleep(2)
+            # 看門狗:只檢查「連線還在」不夠,即時訂閱死了連線也不會斷,K 棒就停了
+            if st["dead"]:
+                raise RuntimeError("live bar subscription lost (error 10182); reconnecting")
+            if bars_market_open(dt.datetime.now(NY)) and time.time() - st["last"] > BARS_STALE_SEC:
+                raise RuntimeError(f"no bar update for {int(time.time() - st['last'])}s during market hours; reconnecting")
     finally:
         if con is not None:
             con.close()

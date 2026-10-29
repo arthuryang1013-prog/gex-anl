@@ -57,10 +57,11 @@
 - 開盤空窗:新版收集器有合約清單快取與盤前預建,但**只用假的 IBKR 連線測過邏輯**,真實耗時與盤前 OI / 報價是否可取得,要盤外實測。
 - QQQ / NDX 換算 NQ 用單一價格比例(忽略基差變動)。`basis_check.py` 真資料實測(2026-10-15~28,美東 09:30–13:30 交易時段):NDX 比例整段漂移 9–17 NQ 點、QQQ 4–7 點,30 分鐘內的抖動 NDX 約 4–9 點、QQQ 約 1–5 點;**美東 15:30 之後(接近 16:00 現貨收盤)NDX/QQQ 的比例會失真(漂移 50–140 點,推測是現貨收盤後 NQ 還在動),交易時段外的 QQQ/NDX 牆不要信**。比例法與差額法在現價 ±300 點內只差約 2 點。結論:交易時段內不需要改換算方式。
 - **AI 導師(原始數據版)**:`ai_mentor.py` + `/api/aimentor`,**手動觸發**(導師頁按鈕)。只餵原始數據(逐履約價 OI/量/gamma、1/5 分 K、訂單流每分鐘歷史、大單),不給規則版的方向/分數/flip/牆;回答最後必須附 `<verdict>` 判定區塊,由程式解析並存進 `mentor_log`(kind='ai'),用同一套 ±40 點 / 30 分鐘判對錯,和規則版、永遠做多/做空並排。每次呼叫約 1–3 萬 token 輸入,有 45 秒冷卻;逾時/輸出上限用 config 的 `ai_mentor_timeout_sec`、`ai_mentor_max_tokens`(預設 240 秒 / 8000)。**只用假的 DeepSeek 測過;AI 判斷好不好要靠累積的命中率,沒有驗證前不要宣稱有預測力。**
-- **orderflow 逐秒欄位是「近 60 秒滾動累計」**(bridge `WINDOW_SEC=60`,每秒送一次),不是增量。歷史檔逐秒加總會放大約 60 倍;一律用 `orderflow_minutes.minute_rows()`(每分鐘取最後一筆)。已修:訂單流動能副圖、AI 導師每分鐘表、導師 orderflow 摘要;這是讀程式碼發現的,還沒用真資料核對量級。`/api/orderflow` 供盤面指標頁與熱圖掛單牆圖層使用。
+- **orderflow 逐秒欄位是「近 60 秒滾動累計」**(bridge `WINDOW_SEC=60`,每秒送一次),不是增量。歷史檔逐秒加總會放大約 60 倍;一律用 `orderflow_minutes.minute_rows()`(每分鐘取最後一筆)。已修:訂單流動能副圖、AI 導師每分鐘表、導師 orderflow 摘要;這是讀程式碼發現的,還沒用真資料核對量級。
 - **訊號存檔與逐訊號驗證**:網站每次算盤面指標,會把各訊號的值(-1~+1)存進 `web_cache.sqlite` 的 `thesis.sig_json`;部署後累積幾天,用 `signal_outcome.py`(±40 點 / 30 分鐘)看每個訊號的命中率。舊紀錄沒有這欄,無法回補。樣本少時誤差很大,多訊號同時比較會有偶然高分,**沒有連續幾天、足夠樣本前,不要調權重或宣稱某訊號有效**。
 - **訂單流事件(吸收 / 冰山 / 力竭 / 掃單)**:`orderflow_bridge.py` 用成交與掛單簿偵測,封包多一個 `events`;`orderflow_receiver.py` 去重後存 `orderflow_events.jsonl`(留 2 天,已 gitignore);`/api/flowevents` 供熱圖「訂單流事件」圖層畫在對應時間與價位(取代舊的左緣大單/掃單標記)。**偵測門檻(`ABS_*`、`ICE_*`、`EXH_*`、`SWEEP_*`)是初始猜測,只用假行情測過;要看過真實盤面再調,沒有驗證前不要宣稱有預測力。** 更新 bridge 要把新版整份重貼進 Windows 的 Bookmap 並重建,盤外做;receiver 要 `systemctl restart orderflow-receiver`。
 - 熱圖 K 線上的導師標記只標 AI 導師的結論;規則版(盤面指標)不再標 #。
+- **K 棒由 gex-web 另開的程序抓**(`bars_process`,IB clientId 31),不是收集器。2026-10-29 發生過:IBKR 夜間重置時即時訂閱死了(Error 10182)但 API 連線沒斷,程序一直以為連著,K 棒停了約 10 小時。已加看門狗(開市時間內 `BARS_STALE_SEC` 秒沒更新或收到 10182 就重連);**只用假的 ib_async 測過**。救急:`systemctl restart gex-web`(會重新訂閱並補 4 天歷史),不影響收集器。
 - 規則版導師已改稱「盤面指標」:價格動量權重最大(3),方向容易跟著走勢跑,只當參考。
 - 導師評論現在會存進 `mentor_log.sqlite`(永久保留,不要放進會被定期清理的 web_cache),日結由 `/api/daily` 產生;對錯由程式用 1 分 K 判定,AI 只負責串成文字。
 
