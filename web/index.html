@@ -64,7 +64,7 @@
       </div>
       <div class="grp tg"><span class="lbl">圖層</span>
         <div class="chips" id="layers">
-          <button data-v="heat">熱圖</button><button data-v="lines">牆 / Flip</button><button data-v="band" title="每條牆與 Flip 旁邊的淡色支撐壓力帶">支撐壓力帶</button><button data-v="emband" title="今天 ±1σ 預期震幅:現價 ± 現價 × 近月(非0DTE)ATM 隱波 × √(1/365),上下兩條虛線 + 淡色通道">預期波動帶</button><button data-v="profile">側邊分布</button><button data-v="sub">副圖</button><button data-v="mscene" title="畫出 AI 導師最近一次的判定:從它說話的那根 K 線開始的方向箭頭、順向 40 點(判對)與反向 40 點(判錯)區間,以及它說的判錯價位;±40/30 分鐘是驗證用的規則,命中率未驗證">AI 判定窗</button><button data-v="mmarks" title="把導師的每則結論標在 K 線上:綠=命中、紅=未命中、灰=逾時/待結算;點標記看原文">導師標記</button><button data-v="events">事件</button><button data-v="flmark" title="把 orderflow 的大單與掃單標在熱圖對應價位(需 Windows Bookmap 送資料)">大單/掃單</button><button data-v="bkwall" title="把 Bookmap 目前的買/賣掛單牆畫在熱圖右緣(綠=買方掛單、紅=賣方掛單,長度=口數;近價 ±100 點)">掛單牆</button><button data-v="sqrib" title="主圖最上方一條細帶:綠 = 主動買盤動能,紅 = 主動賣盤動能(預設關閉)">動能條</button>
+          <button data-v="heat">熱圖</button><button data-v="lines">牆 / Flip</button><button data-v="band" title="每條牆與 Flip 旁邊的淡色支撐壓力帶">支撐壓力帶</button><button data-v="emband" title="今天 ±1σ 預期震幅:現價 ± 現價 × 近月(非0DTE)ATM 隱波 × √(1/365),上下兩條虛線 + 淡色通道">預期波動帶</button><button data-v="profile">側邊分布</button><button data-v="sub">副圖</button><button data-v="mscene" title="畫出 AI 導師最近一次的判定:從它說話的那根 K 線開始的方向箭頭、順向 40 點(判對)與反向 40 點(判錯)區間,以及它說的判錯價位;±40/30 分鐘是驗證用的規則,命中率未驗證">AI 判定窗</button><button data-v="mmarks" title="把導師的每則結論標在 K 線上:綠=命中、紅=未命中、灰=逾時/待結算;點標記看原文">導師標記</button><button data-v="events">事件</button><button data-v="flmark" title="把 orderflow 的大單與掃單標在熱圖對應價位(需 Windows Bookmap 送資料)">大單/掃單</button><button data-v="sqrib" title="主圖最上方一條細帶:綠 = 主動買盤動能,紅 = 主動賣盤動能(預設關閉)">動能條</button>
         </div>
       </div>
       <button class="ghost tmoreBtn" id="moreBtn" title="顯示/隱藏進階控制">更多 ▾</button>
@@ -276,7 +276,7 @@
       </div>
       <div style="height:18px"></div>
       <div class="mentorcard" id="mentorCard">
-        <div class="ruleTag"><b>盤面指標</b><small>規則計分(不是導師)· 上方標籤已加平滑、中性區與遲滯,不含價格動量;下方儀表與舊分數是即時值,容易晃動,只當參考</small></div>
+        <div class="ruleTag"><b>盤面指標</b><small>規則計分(不是導師)· 價格動量占最大權重,方向容易跟著走勢跑,只當參考;AI 導師的結論看上面那張</small></div>
         <div class="mhead">
           <div class="mdir" id="mDir"><span class="arr">—</span><b>等待資料</b><em></em></div>
           <div class="mgauge">
@@ -286,14 +286,12 @@
           <div class="mconf">
             <svg viewBox="0 0 72 72"><circle class="bg" cx="36" cy="36" r="30"/><circle class="fg" id="mConfArc" cx="36" cy="36" r="30"/></svg>
             <span class="mconfNum" id="mConf">—</span>
-            <span class="mconfLbl">即時信心<br>(舊算法)</span>
+            <span class="mconfLbl">信心度</span>
           </div>
         </div>
         <p class="mmeta" id="mMeta"></p>
         <p class="msplit" id="mSplit"></p>
         <p class="mheadline" id="mHeadline"></p>
-        <div class="msec"><h4>方向穩定度<small>結構分數(不含價格動量、不含訂單流)· 平滑 + 中性區 + 遲滯</small></h4><div id="mStable"></div></div>
-        <div class="msec"><h4>Bookmap 訂單流<small>最近一小時 · 滾動窗口已修正 · delta_tr / cvd_tr 為新欄位,尚未跟 Bookmap 手動核對</small></h4><div id="mFlowBox" class="ofBox">讀取中…</div></div>
         <div class="msec"><h4>盤面指標圖<small>規則版方向 + 價位 · 色塊=±40 點判定窗(未驗證)</small></h4><div id="mLadder"></div></div>
         <div class="msec"><h4>關鍵價位</h4><div class="mkeys" id="mKeys"></div></div>
         <div class="mverify" id="mVerify" hidden></div>

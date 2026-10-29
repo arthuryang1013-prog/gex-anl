@@ -30,11 +30,11 @@ def load_rows(cache_db):
         cols = [r[1] for r in con.execute("PRAGMA table_info(thesis)")]
         if "sig_json" not in cols:
             sys.exit("thesis 表還沒有 sig_json 欄位:要先部署『訊號存檔』更新,等盤中累積幾天資料。")
-        rows = con.execute("SELECT t, spot, score, score_struct, sig_json FROM thesis WHERE t IS NOT NULL AND sig_json IS NOT NULL ORDER BY t").fetchall()
+        rows = con.execute("SELECT t, spot, score, sig_json FROM thesis WHERE t IS NOT NULL AND sig_json IS NOT NULL ORDER BY t").fetchall()
     finally:
         con.close()
     out = []
-    for t, spot, score, st, sj in rows:
+    for t, spot, score, sj in rows:
         try:
             d = json.loads(sj)
         except Exception:
@@ -47,8 +47,6 @@ def load_rows(cache_db):
             sig[f"flow:{n}"] = v
         for n, v in (d.get("agg") or {}).items():
             sig[f"agg:{n}"] = v
-        if st is not None:
-            sig["agg:struct(無動量無訂單流)"] = st / 100.0
         out.append((t, spot, sig))
     return out
 
