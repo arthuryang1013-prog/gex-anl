@@ -1,0 +1,17 @@
+# 範例 systemd 服務:常駐記錄「訂單流事件 / 碰牆」的 GEX 背景與事後 ±40 結果。
+# 安裝(VPS,以 root 執行;路徑依實際專案資料夾調整):
+#   cp flow-outcomes.service.example /etc/systemd/system/flow-outcomes.service
+#   systemctl daemon-reload && systemctl enable --now flow-outcomes
+# 看成績單:  python3 flow_outcomes.py --report
+[Unit]
+Description=flow outcomes logger (events + wall touches)
+After=network.target
+
+[Service]
+WorkingDirectory=/root/gex
+ExecStart=/usr/bin/python3 /root/gex/flow_outcomes.py --loop
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
