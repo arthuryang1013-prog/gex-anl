@@ -121,7 +121,7 @@ trade_log = deque()        # 近 60 秒的成交紀錄:(時間, 買/賣, 價, �
 #     格式未知,先只記錄,之後看真資料再決定怎麼接
 #  6. 商品資訊:instrument_multiplier、supported_features(資料是不是 MBO、是否延遲、來源交易所)
 D = {"trades": 0, "exec_start": 0, "aggr_id": 0, "pass_id": 0, "pass_match": 0, "otc": 0,
-     "mbo": 0, "mbo_types": {}, "depth": 0, "err": 0, "samples": {"aggr": [], "pass": [], "mbo": []}}
+"mbo": 0, "mbo_types": {}, "depth": 0, "err": 0, "samples": {"aggr": [], "pass": [], "mbo": []}}
 _addon = None
 _alias = None
 _info = {}                 # 商品資訊 / 資料特徵
@@ -132,19 +132,19 @@ MSG_ON = True              # 事件觸發時寫一行到 Bookmap 訊息欄
 
 # (名稱, 變數, 預設, 最小, 最大, 步長);名稱用 ASCII,避免設定欄位編碼問題
 _SETTINGS = [
-    ("OF big_min", "BIG_MIN", 20, 5, 200, 5),
-    ("OF sweep_min_vol", "SWEEP_MIN_VOL", 15, 1, 500, 1),
-    ("OF stop_min_aggr", "STOP_MIN_AGGR", 3, 2, 20, 1),
-    ("OF stop_min_vol", "STOP_MIN_VOL", 25, 5, 500, 5),
-    ("OF stop_min_pts", "STOP_MIN_PTS", 2.0, 0.5, 20.0, 0.25),
-    ("OF ice_min_vol", "ICE_MIN_VOL", 40, 5, 500, 5),
-    ("OF ice_sd_k", "ICE_SD_K", 2.0, 0.5, 6.0, 0.25),
-    ("OF ice_factor", "ICE_FACTOR", 3.0, 1.0, 10.0, 0.5),
-    ("OF abs_min_vol", "ABS_MIN_VOL", 120, 20, 1000, 10),
-    ("OF abs_sd_k", "ABS_SD_K", 2.0, 0.5, 6.0, 0.25),
-    ("OF abs_dom", "ABS_DOM", 0.65, 0.5, 0.95, 0.05),
-    ("OF exh_push_vol", "EXH_PUSH_VOL", 80, 20, 500, 10),
-    ("OF exh_rise_pts", "EXH_RISE_PTS", 4.0, 1.0, 20.0, 0.5),
+("OF big_min", "BIG_MIN", 20, 5, 200, 5),
+("OF sweep_min_vol", "SWEEP_MIN_VOL", 15, 1, 500, 1),
+("OF stop_min_aggr", "STOP_MIN_AGGR", 3, 2, 20, 1),
+("OF stop_min_vol", "STOP_MIN_VOL", 25, 5, 500, 5),
+("OF stop_min_pts", "STOP_MIN_PTS", 2.0, 0.5, 20.0, 0.25),
+("OF ice_min_vol", "ICE_MIN_VOL", 40, 5, 500, 5),
+("OF ice_sd_k", "ICE_SD_K", 2.0, 0.5, 6.0, 0.25),
+("OF ice_factor", "ICE_FACTOR", 3.0, 1.0, 10.0, 0.5),
+("OF abs_min_vol", "ABS_MIN_VOL", 120, 20, 1000, 10),
+("OF abs_sd_k", "ABS_SD_K", 2.0, 0.5, 6.0, 0.25),
+("OF abs_dom", "ABS_DOM", 0.65, 0.5, 0.95, 0.05),
+("OF exh_push_vol", "EXH_PUSH_VOL", 80, 20, 500, 10),
+("OF exh_rise_pts", "EXH_RISE_PTS", 4.0, 1.0, 20.0, 0.5),
 ]
 _BOOL_SETTINGS = [("OF events_on", "EVENTS_ON", True), ("OF msg_on", "MSG_ON", True)]
 
@@ -154,9 +154,9 @@ def _setup_addon(addon, alias, full_name, instrument_multiplier, supported_featu
     _addon, _alias = addon, alias
     sf = supported_features if isinstance(supported_features, dict) else {}
     _info.update(name=full_name, mult=instrument_multiplier,
-                 mbo=sf.get("mbo"), depth=sf.get("depth"), delayed=sf.get("isDelayed"),
-                 exch=sf.get("exchangeUsedForSubscription"), typ=sf.get("typeUsedForSubscription"),
-                 mkt=sf.get("marketMode"))
+    mbo=sf.get("mbo"), depth=sf.get("depth"), delayed=sf.get("isDelayed"),
+    exch=sf.get("exchangeUsedForSubscription"), typ=sf.get("typeUsedForSubscription"),
+    mkt=sf.get("marketMode"))
     # 設定面板
     for (nm, var, dv, lo, hi, st) in _SETTINGS:
         bm.add_number_settings_parameter(addon, alias, nm, globals().get(var, dv), lo, hi, st, reload_if_change=False)
@@ -168,7 +168,7 @@ def _setup_addon(addon, alias, full_name, instrument_multiplier, supported_featu
         bm.register_indicator(addon, alias, rid, nm, "BOTTOM", color=col)
     try:
         bm.send_user_message(addon, alias, f"[OF] 已啟動 mbo={_info.get('mbo')} depth={_info.get('depth')} "
-                                           f"delayed={_info.get('delayed')} exch={_info.get('exch')} mult={_info.get('mult')}")
+        f"delayed={_info.get('delayed')} exch={_info.get('exch')} mult={_info.get('mult')}")
     except Exception:
         pass
 
@@ -430,7 +430,7 @@ def _emit(kind, side, price, vol, x=None, key=None, now=None):
         return False
     _last_evt[ck] = now
     ev = {"id": f"{int(now * 10)}-{kind}-{side}-{int(round(price * 4))}", "t": round(now, 2), "k": kind, "s": side,
-          "p": round(float(price), 2), "v": int(round(vol))}
+    "p": round(float(price), 2), "v": int(round(vol))}
     if x:
         ev["x"] = x
     events.append(ev)
@@ -486,11 +486,11 @@ def _cluster_end():
             near = (ext - c["p0"]) if buy else (c["p0"] - ext)
             if brk > 0 and near <= 2.0:
                 _emit("stop", side, c["last"], c["vol"],
-                      {"aggr": c["aggr"], "lv": nlv, "p0": round(c["p0"], 2), "brk": round(brk, 2), "inf": 1},
-                      key=c["side"], now=c["t1"])
+                {"aggr": c["aggr"], "lv": nlv, "p0": round(c["p0"], 2), "brk": round(brk, 2), "inf": 1},
+                key=c["side"], now=c["t1"])
                 return
     _emit("sweep", side, c["last"], c["vol"],
-          {"aggr": c["aggr"], "lv": nlv, "p0": round(c["p0"], 2)}, key=c["side"], now=c["t1"])
+    {"aggr": c["aggr"], "lv": nlv, "p0": round(c["p0"], 2)}, key=c["side"], now=c["t1"])
 
 
 def _exec_end():
@@ -504,7 +504,7 @@ def _exec_end():
         _cluster_end()
     if not _cl:
         _cl = {"side": e["side"], "t0": e["t0"], "t1": e["t1"], "p0": e["p0"], "last": e["last"], "vol": 0.0,
-               "lv": set(), "aggr": 0, "hi": e["hi"], "lo": e["lo"]}
+        "lv": set(), "aggr": 0, "hi": e["hi"], "lo": e["lo"]}
     _cl["t1"] = e["t1"]
     _cl["last"] = e["last"]
     _cl["vol"] += e["vol"]
@@ -531,7 +531,7 @@ def _on_trade_event(now, side, price_level, price_real, sz, is_bid_aggr, start=F
         _exec_end()
     if not _cur:
         _cur = {"key": key, "side": side, "t0": now, "t1": now, "p0": price_real, "last": price_real,
-                "vol": 0.0, "lv": set(), "hi": price_real, "lo": price_real}
+        "vol": 0.0, "lv": set(), "hi": price_real, "lo": price_real}
     _cur["t1"] = now
     _cur["last"] = price_real
     _cur["vol"] += sz
@@ -600,7 +600,7 @@ def _win(now, a, b):
     if not rows:
         return None
     return (sum(r[1] for r in rows), sum(r[2] for r in rows), rows[0][3], rows[-1][4],
-            max(r[5] for r in rows), min(r[6] for r in rows), sum(r[7] for r in rows))
+    max(r[5] for r in rows), min(r[6] for r in rows), sum(r[7] for r in rows))
 
 
 def _abs_threshold(now, side_idx):
@@ -646,7 +646,7 @@ def _detect_absorb(now):
                 conf = 2
                 break
         _emit("absorb", side, vwap, vol,
-              {"win": ABS_WIN, "moved": round(moved, 2), "thr": round(thr, 1), "conf": conf}, now=now)
+        {"win": ABS_WIN, "moved": round(moved, 2), "thr": round(thr, 1), "conf": conf}, now=now)
 
 
 def _ice_threshold(now):
@@ -686,7 +686,7 @@ def _detect_iceberg(now):
         is_bid, pl, init, mx, ex, nf, t0, t1, rf = st
         if ex >= max(ICE_MIN_VOL, ICE_FACTOR * mx) and nf >= 3 and (rf >= 1 or ex >= ICE_FACTOR * max(init, mx)) and _held(is_bid, pl):
             if _emit("iceberg", "buy" if is_bid else "sell", pl * _pips, ex,
-                     {"vis": round(mx, 1), "n": nf, "refill": rf, "conf": 2, "by": "id"}, key=(is_bid, pl), now=now):
+            {"vis": round(mx, 1), "n": nf, "refill": rf, "conf": 2, "by": "id"}, key=(is_bid, pl), now=now):
                 done.add((is_bid, pl))
     # (二)用價位統計:同價位 60 秒內被打掉的量遠超看得見的掛量;有補單證據可信度 2,否則要 1.5 倍門檻、可信度 1
     cut = now - ICE_WIN
@@ -717,7 +717,7 @@ def _detect_iceberg(now):
         if not _held(passive_bid, pl):
             continue
         _emit("iceberg", "buy" if passive_bid else "sell", pl * _pips, vol,
-              {"vis": round(vis_max, 1), "n": len(dq), "refill": refills, "conf": conf, "by": "lvl"}, key=key, now=now)
+        {"vis": round(vis_max, 1), "n": len(dq), "refill": refills, "conf": conf, "by": "lvl"}, key=key, now=now)
 
 
 def _detect_exhaust(now):
@@ -733,10 +733,10 @@ def _detect_exhaust(now):
     scale = 15.0 / 45.0
     # 買方力竭:推進段淨買、價格上推,後勁遞減,最近 15 秒買量萎縮且沒再創高
     if (pb - ps >= EXH_PUSH_VOL and phi - p0 >= EXH_RISE_PTS and tb <= EXH_TAIL_RATIO * pb * scale
-            and legs[2][0] <= EXH_LEG_RATIO * legs[0][0] and thi <= phi + 0.25):
+    and legs[2][0] <= EXH_LEG_RATIO * legs[0][0] and thi <= phi + 0.25):
         _emit("exhaust", "buy", phi, pb - ps, {"rise": round(phi - p0, 2), "tail": round(tb, 1)}, now=now)
     elif (ps - pb >= EXH_PUSH_VOL and p0 - plo >= EXH_RISE_PTS and ts_ <= EXH_TAIL_RATIO * ps * scale
-            and legs[2][1] <= EXH_LEG_RATIO * legs[0][1] and tlo >= plo - 0.25):
+    and legs[2][1] <= EXH_LEG_RATIO * legs[0][1] and tlo >= plo - 0.25):
         _emit("exhaust", "sell", plo, ps - pb, {"fall": round(p0 - plo, 2), "tail": round(ts_, 1)}, now=now)
 
 
@@ -775,7 +775,7 @@ def _norm_id(x):
 
 
 def handle_trades(addon, alias, price_level, size_level, is_otc, is_bid, is_execution_start,
-                  is_execution_end, aggressor_order_id=None, passive_order_id=None):
+is_execution_end, aggressor_order_id=None, passive_order_id=None):
     """實際成交。is_bid=True 代表買方主動(依官方文件);用來跟 MBO 推判的 Delta 對照。
     任何例外都吞掉:Bookmap 的 handler 一丟例外就會把整個 addon 關掉。"""
     global tr_buy, tr_sell
@@ -808,7 +808,7 @@ def handle_trades(addon, alias, price_level, size_level, is_otc, is_bid, is_exec
                 tr_sell += sz
             try:
                 _on_trade_event(time.time(), "b" if is_bid else "s", price_level, price_level * _pips, sz, bool(is_bid),
-                                start=bool(is_execution_start), aggr_id=aid, pass_id=pid)
+                start=bool(is_execution_start), aggr_id=aid, pass_id=pid)
             except Exception:
                 D["err"] += 1
     except Exception:
@@ -888,7 +888,7 @@ def _top_imbalance():
 def _top_imbalance_big():
     """舊算法(量最大的 N 檔,不管離現價多遠),保留作為對照欄位 imb_big。"""
     return _imb(sorted(bid_book.values(), reverse=True)[:TOP_N],
-                sorted(ask_book.values(), reverse=True)[:TOP_N])
+    sorted(ask_book.values(), reverse=True)[:TOP_N])
 
 
 def _book_snapshot():
@@ -938,8 +938,8 @@ def _tick():
     now = time.time()
     with _lock:
         snap = dict(t=now, db=delta_buy, ds=delta_sell, bb=big_buy, bs=big_sell,
-                    bv=big_vol, sb=sweep_buy, ss=sweep_sell,
-                    tb=tr_buy, ts=tr_sell, pb=pull_bid, pa=pull_ask, kb=stack_bid, ka=stack_ask)
+        bv=big_vol, sb=sweep_buy, ss=sweep_sell,
+        tb=tr_buy, ts=tr_sell, pb=pull_bid, pa=pull_ask, kb=stack_bid, ka=stack_ask)
         idle = (now - last_event_time) if last_event_time else 0.0
         imb = _top_imbalance()
         imb_big = _top_imbalance_big()
@@ -958,35 +958,35 @@ def _tick():
         samples.popleft()
     base = samples[0] if samples else snap
     pkt = {
-        "ts": now,
-        "idle_sec": round(idle, 2),
-        "lag_sec": round(idle, 2),   # 事件停頓秒數(不是真的市場延遲;Bookmap 卡頓我們測不到)
-        "delta": round((snap["db"] - base["db"]) - (snap["ds"] - base["ds"]), 1),
-        "delta_buy": round(snap["db"] - base["db"], 1),
-        "delta_sell": round(snap["ds"] - base["ds"], 1),
-        "vol": round((snap["db"] - base["db"]) + (snap["ds"] - base["ds"]), 1),
-        "imb": round(imb, 4),
-        "imb_big": round(imb_big, 4),
+    "ts": now,
+    "idle_sec": round(idle, 2),
+    "lag_sec": round(idle, 2),   # 事件停頓秒數(不是真的市場延遲;Bookmap 卡頓我們測不到)
+    "delta": round((snap["db"] - base["db"]) - (snap["ds"] - base["ds"]), 1),
+    "delta_buy": round(snap["db"] - base["db"], 1),
+    "delta_sell": round(snap["ds"] - base["ds"], 1),
+    "vol": round((snap["db"] - base["db"]) + (snap["ds"] - base["ds"]), 1),
+    "imb": round(imb, 4),
+    "imb_big": round(imb_big, 4),
         # v2:實際成交算的 Delta(跟 delta 對照)、累計 CVD、近價撤單/加單量
-        "delta_tr": round((snap["tb"] - base["tb"]) - (snap["ts"] - base["ts"]), 1),
-        "vol_tr": round((snap["tb"] - base["tb"]) + (snap["ts"] - base["ts"]), 1),
-        "cvd_tr": round(snap["tb"] - snap["ts"], 1),
-        "cvd_mbo": round(snap["db"] - snap["ds"], 1),
-        "pull_bid": round(snap["pb"] - base["pb"], 1),
-        "pull_ask": round(snap["pa"] - base["pa"], 1),
-        "stack_bid": round(snap["kb"] - base["kb"], 1),
-        "stack_ask": round(snap["ka"] - base["ka"], 1),
-        "big": round((snap["bb"] - base["bb"]) - (snap["bs"] - base["bs"]), 1),
-        "big_vol": round(snap["bv"] - base["bv"], 1),
-        "sweep_buy": int(snap["sb"] - base["sb"]),
-        "sweep_sell": int(snap["ss"] - base["ss"]),
-        "spot": spot,
-        "book_bid": book_bid,
-        "book_ask": book_ask,
-        "trades": trades,
-        "events": ev_out,
-        "mult": _info.get("mult"),
-        "diag": _diag_payload(),
+    "delta_tr": round((snap["tb"] - base["tb"]) - (snap["ts"] - base["ts"]), 1),
+    "vol_tr": round((snap["tb"] - base["tb"]) + (snap["ts"] - base["ts"]), 1),
+    "cvd_tr": round(snap["tb"] - snap["ts"], 1),
+    "cvd_mbo": round(snap["db"] - snap["ds"], 1),
+    "pull_bid": round(snap["pb"] - base["pb"], 1),
+    "pull_ask": round(snap["pa"] - base["pa"], 1),
+    "stack_bid": round(snap["kb"] - base["kb"], 1),
+    "stack_ask": round(snap["ka"] - base["ka"], 1),
+    "big": round((snap["bb"] - base["bb"]) - (snap["bs"] - base["bs"]), 1),
+    "big_vol": round(snap["bv"] - base["bv"], 1),
+    "sweep_buy": int(snap["sb"] - base["sb"]),
+    "sweep_sell": int(snap["ss"] - base["ss"]),
+    "spot": spot,
+    "book_bid": book_bid,
+    "book_ask": book_ask,
+    "trades": trades,
+    "events": ev_out,
+    "mult": _info.get("mult"),
+    "diag": _diag_payload(),
     }
     _push_indicators(pkt["cvd_tr"], pkt["delta_tr"])
     _post(pkt)
@@ -999,7 +999,7 @@ def _post(pkt):
         if TOKEN:
             headers["Authorization"] = "Bearer " + TOKEN
         req = urllib.request.Request(
-            INGEST_URL or f"http://{MAC_IP}:{MAC_PORT}/", data=data, headers=headers)
+        INGEST_URL or f"http://{MAC_IP}:{MAC_PORT}/", data=data, headers=headers)
         urllib.request.urlopen(req, timeout=1.5)
     except Exception:
         pass  # Mac 沒開或網路不通就跳過,下秒再試
@@ -1020,9 +1020,9 @@ if __name__ == "__main__":
     bm.add_mbo_handler(addon, handle_mbo)
     bm.add_trades_handler(addon, handle_trades)
     for _reg, _fn in (("add_on_setting_change_handler", handle_setting_change),
-                      ("add_indicator_response_handler", handle_indicator_response),
-                      ("add_broadcasting_provider_status_handler", handle_bcast_status),
-                      ("add_broadcasting_handler", handle_bcast)):
+    ("add_indicator_response_handler", handle_indicator_response),
+    ("add_broadcasting_provider_status_handler", handle_bcast_status),
+    ("add_broadcasting_handler", handle_bcast)):
         try:
             getattr(bm, _reg)(addon, _fn)
         except Exception as _e:
