@@ -276,7 +276,7 @@
       </div>
       <div style="height:18px"></div>
       <div class="mentorcard" id="mentorCard">
-        <div class="ruleTag"><b>盤面指標</b><small>規則計分(不是導師)· 價格動量占最大權重,方向容易跟著走勢跑,只當參考;AI 導師的結論看上面那張</small></div>
+        <div class="ruleTag"><b>盤面指標</b><small>規則計分(不是導師)· 上方標籤已加平滑、中性區與遲滯,不含價格動量;下方儀表與舊分數是即時值,容易晃動,只當參考</small></div>
         <div class="mhead">
           <div class="mdir" id="mDir"><span class="arr">—</span><b>等待資料</b><em></em></div>
           <div class="mgauge">
@@ -286,12 +286,13 @@
           <div class="mconf">
             <svg viewBox="0 0 72 72"><circle class="bg" cx="36" cy="36" r="30"/><circle class="fg" id="mConfArc" cx="36" cy="36" r="30"/></svg>
             <span class="mconfNum" id="mConf">—</span>
-            <span class="mconfLbl">信心度</span>
+            <span class="mconfLbl">即時信心<br>(舊算法)</span>
           </div>
         </div>
         <p class="mmeta" id="mMeta"></p>
         <p class="msplit" id="mSplit"></p>
         <p class="mheadline" id="mHeadline"></p>
+        <div class="msec"><h4>方向穩定度<small>結構分數(不含價格動量、不含訂單流)· 平滑 + 中性區 + 遲滯</small></h4><div id="mStable"></div></div>
         <div class="msec"><h4>盤面指標圖<small>規則版方向 + 價位 · 色塊=±40 點判定窗(未驗證)</small></h4><div id="mLadder"></div></div>
         <div class="msec"><h4>關鍵價位</h4><div class="mkeys" id="mKeys"></div></div>
         <div class="mverify" id="mVerify" hidden></div>

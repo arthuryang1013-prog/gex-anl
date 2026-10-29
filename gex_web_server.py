@@ -45,6 +45,7 @@ import gex_levels as GL
 import deepseek_client as DC
 import mentor_log as ML
 import ai_mentor as AM
+import thesis_stable as TS
 
 try:
     HERE = os.path.dirname(os.path.abspath(__file__))
@@ -1273,7 +1274,7 @@ def _thesis_src(con, src, lo, t, latest, spot, snaps):
     if ret4 is not None:
         sm = _clamp(0.6 * _clamp(ret4 / 0.015) + 0.4 * _clamp((ret1 or 0.0) / 0.004))
         val = f"4小時 {ret4*100:+.2f}%" + (f" / 1小時 {ret1*100:+.2f}%" if ret1 is not None else "")
-        add("mom", "價格動量", val, sm, 3, "近期價格往上 = 趨勢偏多;往下 = 偏空。所有訊號裡最直覺、最有實證的一條。")
+        add("mom", "價格動量", val, sm, 3, "近期價格往上 = 趨勢偏多;往下 = 偏空。這條本質上是在描述走勢(跟著價格跑),權重最大(3);它有沒有預測力尚未驗證,所以『穩定方向』分數不納入它。")
     if net_all is not None or flip is not None:
         gs = []
         if net_all is not None:
@@ -1324,7 +1325,9 @@ def _thesis_src(con, src, lo, t, latest, spot, snaps):
     rsig = [x for x in signals if x.get("kind") == "regime"]
     raw_dir = (sum(x["s"] * x["weight"] for x in dsig) / sum(x["weight"] for x in dsig)) if dsig else 0.0
     regime_s = (sum(x["s"] * x["weight"] for x in rsig) / sum(x["weight"] for x in rsig)) if rsig else None
-    return raw, signals, dict(raw_dir=raw_dir, regime_s=regime_s, ret1=ret1, ret4=ret4, net_all=net_all, net_ex0=net_ex0, net_zero=net_zero,
+    ssig = [x for x in dsig if x.get("id") != "mom"]       # 結構分數:方向訊號但不含「價格動量」(它只是在描述走勢)
+    raw_struct = (sum(x["s"] * x["weight"] for x in ssig) / sum(x["weight"] for x in ssig)) if ssig else 0.0
+    return raw, signals, dict(raw_dir=raw_dir, raw_struct=raw_struct, regime_s=regime_s, ret1=ret1, ret4=ret4, net_all=net_all, net_ex0=net_ex0, net_zero=net_zero,
                               pcr_vol=pcr_vol, pcr_vol0=pcr_vol0, sk=sk,
                               band_up=band_up, band_dn=band_dn, atm_iv=atm_iv, dte=dte, call_dv=call_dv, put_dv=put_dv,
                               flip=flip, call_wall=call_wall, put_wall=put_wall,
@@ -2005,9 +2008,19 @@ _THESIS_KEYS = ("ts", "t", "spot", "direction", "score", "confidence", "strength
 def _thesis_migrate(c):
     """舊表補上新欄位(方向分數、環境分數)。舊紀錄這兩欄為 NULL。"""
     cols = {r[1] for r in c.execute("PRAGMA table_info(thesis)")}
-    for name, typ in (("score_dir", "INTEGER"), ("regime_s", "REAL")):
+    for name, typ in (("score_dir", "INTEGER"), ("regime_s", "REAL"), ("score_struct", "REAL")):
         if name not in cols:
             c.execute(f"ALTER TABLE thesis ADD COLUMN {name} {typ}")
+
+
+def _thesis_ensure(c):
+    """建立 thesis 表(若不存在)並補上新欄位。"""
+    c.execute("""CREATE TABLE IF NOT EXISTS thesis (
+        ts TEXT PRIMARY KEY, t REAL, spot REAL, direction TEXT, score INTEGER,
+        confidence INTEGER, strength TEXT, short_dir TEXT, short_score INTEGER,
+        flip REAL, call_wall REAL, put_wall REAL, band_up REAL, band_dn REAL,
+        created REAL)""")
+    _thesis_migrate(c)
 
 
 def _thesis_read(t):
@@ -2015,11 +2028,7 @@ def _thesis_read(t):
     with _cache_lock:
         c = _cache_con()
         try:
-            c.execute("""CREATE TABLE IF NOT EXISTS thesis (
-                ts TEXT PRIMARY KEY, t REAL, spot REAL, direction TEXT, score INTEGER,
-                confidence INTEGER, strength TEXT, short_dir TEXT, short_score INTEGER,
-                flip REAL, call_wall REAL, put_wall REAL, band_up REAL, band_dn REAL,
-                created REAL)""")
+            _thesis_ensure(c)
             _thesis_migrate(c)
             rows = c.execute("SELECT ts, t, spot, direction, score, confidence, strength, short_dir, short_score, "
                              "flip, call_wall, put_wall, band_up, band_dn, created FROM thesis ORDER BY t ASC").fetchall()
@@ -2045,17 +2054,47 @@ def _thesis_read(t):
     return prev, dict(n=hit + miss + und, hit=hit, miss=miss, undecided=und)
 
 
-def _thesis_save(ts, t, spot, direction, score, confidence, strength, short, flip, call_wall, put_wall, band_up, band_dn,
-                 score_dir=None, regime_s=None):
+def _thesis_series(t, hours=3.0):
+    """近 hours 小時存下來的 (t, 舊方向, 結構分數);結構分數是新欄位,舊紀錄為 None。"""
     with _cache_lock:
         c = _cache_con()
         try:
-            _thesis_migrate(c)
+            _thesis_ensure(c)
+            rows = c.execute("SELECT t, direction, score_struct, score_dir FROM thesis WHERE t >= ? AND t <= ? ORDER BY t", (t - hours * 3600, t)).fetchall()
+        finally:
+            c.close()
+    return rows
+
+
+def _stable_view(t, score_struct):
+    """用存下來的結構分數序列算『穩定標籤』與近 2 小時的翻轉次數對照。"""
+    rows = _thesis_series(t)
+    ser = [(r[0], r[2]) for r in rows if r[2] is not None]
+    res = TS.stabilize(ser)
+    last = res[-1] if res else None
+    two_h = [x for x in res if x["t"] >= t - 7200]
+    leg = [r[1] for r in rows if r[0] >= t - 7200 and r[1]]
+    return dict(
+        label=last["label"] if last else None, since=last["since"] if last else None,
+        age_min=int((t - last["since"]) / 60) if last else None, ema=last["ema"] if last else None,
+        score_struct=score_struct, n=len(res), building=len(res) < 3,
+        series=[[int(x["t"]), round(x["score"], 1), x["ema"]] for x in res if x["t"] >= t - 7200][-60:],
+        flips_stable_2h=TS.flips([x["label"] for x in two_h]), flips_legacy_2h=TS.flips(leg), n_legacy_2h=len(leg),
+        params=dict(alpha=TS.ALPHA, t_in=TS.T_IN, t_out=TS.T_OUT, k=TS.K_IN),
+        note="這只是讓標籤變穩(平滑 + 中性區 + 遲滯),不是讓它變準;參數是暫定值,還沒用真資料調過。不含價格動量與訂單流。")
+
+
+def _thesis_save(ts, t, spot, direction, score, confidence, strength, short, flip, call_wall, put_wall, band_up, band_dn,
+                 score_dir=None, regime_s=None, score_struct=None):
+    with _cache_lock:
+        c = _cache_con()
+        try:
+            _thesis_ensure(c)
             c.execute("INSERT OR REPLACE INTO thesis (ts, t, spot, direction, score, confidence, strength, short_dir, short_score, flip, call_wall, put_wall, band_up, band_dn, created) "
                       "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                       (ts, t, spot, direction, score, confidence, strength, short["direction"], short["score"],
                        flip, call_wall, put_wall, band_up, band_dn, time.time()))
-            c.execute("UPDATE thesis SET score_dir=?, regime_s=? WHERE ts=?", (score_dir, regime_s, ts))
+            c.execute("UPDATE thesis SET score_dir=?, regime_s=?, score_struct=? WHERE ts=?", (score_dir, regime_s, score_struct, ts))
             c.commit()
         finally:
             c.close()
@@ -2095,6 +2134,8 @@ def api_thesis(con, q):
     grand_dir = (gex_dir * gex_w + flow["raw"] * flow_w) if flow_w else gex_dir
     score_dir = int(round(grand_dir * 100))
     direction_dir = "偏多" if grand_dir >= 0 else "偏空"
+    gex_struct = sum(per[s]["ctx"]["raw_struct"] * weights[s] for s in per) / tot_w if tot_w else 0.0
+    score_struct = int(round(gex_struct * 100))
     strength_dir = "強" if abs(grand_dir) >= 0.5 else "中" if abs(grand_dir) >= 0.25 else "弱"
     reg_vals = [(per[s]["ctx"]["regime_s"], weights[s]) for s in per if per[s]["ctx"]["regime_s"] is not None]
     regime_s = (sum(v * w for v, w in reg_vals) / sum(w for _, w in reg_vals)) if reg_vals else None
@@ -2174,7 +2215,8 @@ def api_thesis(con, q):
         return None if x is None else round(float(x), n)
 
     _thesis_save(latest, t, spot, direction, score, confidence, strength, short, flip, call_wall, put_wall, band_up, band_dn,
-                 score_dir=score_dir, regime_s=regime_s)
+                 score_dir=score_dir, regime_s=regime_s, score_struct=score_struct)
+    stable = _stable_view(t, score_struct)
     # 評論存檔(永久保留,供每日總結);失敗不影響網頁
     try:
         ML.log_comment(
@@ -2201,7 +2243,7 @@ def api_thesis(con, q):
     _dsig = [x for x in sorted(per["NQ"]["signals"], key=lambda x: -abs(x["s"] * x["weight"])) if x.get("kind") != "regime" and abs(x["s"]) > 0.05][:3]
     headline = (f"結論:{direction}({strength})。主要依據:" + "、".join(f"{x['name']}{'偏多' if x['s'] > 0 else '偏空'}" for x in _dsig)
                 + f"。{_env}。") if _dsig else f"結論:{direction}({strength})。{_env}。"
-    return dict(ok=True, t=t, spot=round(spot, 1), direction=direction, score=score, headline=headline,
+    return dict(ok=True, t=t, spot=round(spot, 1), direction=direction, score=score, headline=headline, stable=stable,
                 score_dir=score_dir, direction_dir=direction_dir, strength_dir=strength_dir, regime=regime,
                 confidence=confidence, strength=strength, caveat=caveat,
                 sources=dict((s, dict(direction=per[s]["direction"], score=per[s]["score"])) for s in per),

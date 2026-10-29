@@ -858,8 +858,17 @@ function renderThesis() {
   }
   const up = T.direction === '偏多';
   const str = T.strength === '強' ? '訊號強' : T.strength === '中' ? '訊號中' : '訊號弱';
-  dir.className = 'mdir ' + (up ? 'up' : 'dn');
-  dir.innerHTML = `<span class="arr">${up ? '↑' : '↓'}</span><b>${T.direction}</b><em>${str}</em>`;
+  const ST = T.stable || {};
+  const slab = ST.label || null;
+  if (slab) {
+    const sc = slab === '偏多' ? 'up' : slab === '偏空' ? 'dn' : 'na';
+    dir.className = 'mdir ' + sc;
+    dir.innerHTML = `<span class="arr">${sc === 'up' ? '↑' : sc === 'dn' ? '↓' : '·'}</span><b>${slab}</b><em>${ST.building ? '累積中,標籤還不穩' : `已持續 ${ST.age_min} 分鐘`}</em>`;
+  } else {
+    dir.className = 'mdir na';
+    dir.innerHTML = `<span class="arr">·</span><b>累積中</b><em>穩定標籤需要幾筆快照</em>`;
+  }
+  renderStable($('#mStable'), ST, T);
   conf.textContent = T.confidence + '%';
   const circ = 2 * Math.PI * 30;
   arc.style.strokeDasharray = circ;
@@ -1032,13 +1041,15 @@ function renderMmini() {
   const box = $('#mmini');
   const T = D.thesis;
   if (!T || !T.ok || !S.mmini) { box.hidden = true; return; }
-  const up = T.direction === '偏多';
+  const st = T.stable || {};
+  const lab = st.label || (st.building ? '累積中' : '—');
+  const mcls = lab === '偏多' ? 'up' : lab === '偏空' ? 'dn' : 'na';
   const kl = T.key_levels || {};
   const bits = [];
   if (kl.flip0 != null) bits.push(`0DTE flip ${fP(kl.flip0)}`);
   if (kl.put != null) bits.push(`支 ${fP(kl.put)}`);
   if (kl.call != null) bits.push(`壓 ${fP(kl.call)}`);
-  $('#mminiBody').innerHTML = `<div class="mminiDir ${up ? 'up' : 'dn'}">${up ? '↑' : '↓'} ${T.direction} · 信心 ${T.confidence}%</div>
+  $('#mminiBody').innerHTML = `<div class="mminiDir ${mcls}">${mcls === 'up' ? '↑' : mcls === 'dn' ? '↓' : '·'} ${lab}${st.age_min != null ? ` · 已 ${st.age_min} 分` : ''}</div>
     <div class="mminiNarr">${(T.narrative || '').slice(0, 140)}</div>
     <div class="mminiKeys">${bits.join(' · ')}</div>`;
   box.hidden = false;
@@ -1705,6 +1716,25 @@ $('#aiGo').addEventListener('click', runAiMentor);
 $('#aiQ').addEventListener('keydown', (e) => { if (e.key === 'Enter') runAiMentor(); });
 setTimeout(loadAiHist, 0);
 setInterval(() => { if (D.ai && Date.now() / 1000 - D.ai.t > 45 * 60) setAiFromItem(null); }, 60000);
+
+
+/* ---- 盤面指標的穩定度:分數曲線 + 舊標籤與穩定標籤的翻轉次數 ---- */
+function renderStable(el, ST, T) {
+  if (!el) return;
+  if (!ST || !ST.series || ST.series.length < 2) { el.innerHTML = '<span class="dim">結構分數剛開始累積(每個快照一筆,約 3 分鐘),幾筆之後這裡會畫出曲線。</span>'; return; }
+  const W = 340, H = 110, pl = 4, pr = 30, pt = 6, pb = 14, ser = ST.series, p = ST.params || {};
+  const t0 = ser[0][0], t1 = ser[ser.length - 1][0] || t0 + 1;
+  const X = (t) => pl + (t - t0) / Math.max(1, t1 - t0) * (W - pl - pr), Y = (v) => pt + (100 - Math.max(-100, Math.min(100, v))) / 200 * (H - pt - pb);
+  const line = (idx, col, w, dash) => `<polyline fill="none" stroke="${col}" stroke-width="${w}" ${dash ? `stroke-dasharray="${dash}"` : ''} points="${ser.map((r) => X(r[0]).toFixed(1) + ',' + Y(r[idx]).toFixed(1)).join(' ')}"/>`;
+  let g = `<svg viewBox="0 0 ${W} ${H}" class="stblSvg" role="img" aria-label="結構分數曲線">`;
+  g += `<rect x="${pl}" y="${Y(p.t_in || 20)}" width="${W - pl - pr}" height="${Y(-(p.t_in || 20)) - Y(p.t_in || 20)}" fill="#7d90a3" opacity=".10"/>`;
+  g += `<line x1="${pl}" x2="${W - pr}" y1="${Y(0)}" y2="${Y(0)}" stroke="#5b6b80" stroke-width="1"/>`;
+  for (const v of [p.t_in || 20, -(p.t_in || 20)]) g += `<line x1="${pl}" x2="${W - pr}" y1="${Y(v)}" y2="${Y(v)}" stroke="#7d90a3" stroke-width=".8" stroke-dasharray="3 3"/>`;
+  g += line(1, '#5b6b80', 1.1, '') + line(2, ST.label === '偏多' ? UP : ST.label === '偏空' ? DN : '#c9d3e3', 2.2, '');
+  g += `<text x="${W - pr + 3}" y="${Y(p.t_in || 20) + 3}" fill="#8b97a8" font-size="9">+${p.t_in || 20}</text><text x="${W - pr + 3}" y="${Y(-(p.t_in || 20)) + 3}" fill="#8b97a8" font-size="9">−${p.t_in || 20}</text>`;
+  g += `<text x="${pl}" y="${H - 2}" fill="#8b97a8" font-size="9">${hmIn(t0, 'Asia/Taipei')}</text><text x="${W - pr}" y="${H - 2}" text-anchor="end" fill="#8b97a8" font-size="9">${hmIn(t1, 'Asia/Taipei')}(台北)</text></svg>`;
+  el.innerHTML = g + `<div class="stblLegend"><i class="l1"></i>即時結構分數 <i class="l2"></i>平滑後 · 灰帶=中性區(±${p.t_in || 20} 內不下方向)</div><div class="stblTxt">${esc(ST.note || '')}</div>`;
+}
 
 /* ---- 導師日結:讀 /api/daily(評論存檔 + 程式結算的 ±40 命中統計),AI 只負責把當天串成文字 ---- */
 function esc(s) { return String(s == null ? '' : s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])); }
