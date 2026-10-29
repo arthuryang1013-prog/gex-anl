@@ -46,6 +46,7 @@ import deepseek_client as DC
 import mentor_log as ML
 import ai_mentor as AM
 import thesis_stable as TS
+import orderflow_minutes as OM
 
 try:
     HERE = os.path.dirname(os.path.abspath(__file__))
@@ -997,20 +998,18 @@ def api_flowmom(con, q):
         except (TypeError, ValueError):
             return 0.0
 
-    recs.sort(key=lambda x: x[0])
-    buckets = {}   # bucket 起始秒 -> [delta, buy, sell]
-    for ra, r in recs:
-        b = int(ra // step) * step
-        d = buckets.setdefault(b, [0.0, 0.0, 0.0])
-        d[0] += fnum(r.get("delta"))
-        d[1] += fnum(r.get("delta_buy"))
-        d[2] += fnum(r.get("delta_sell"))
-    times, rows, cum = [], [], 0.0
-    for b in sorted(buckets):
-        d = buckets[b]
-        cum += d[0]
-        rows.append([round(cum, 1), round(d[0], 1), round(d[1], 1), round(d[2], 1)])
-        times.append(b)
+    # 注意:bridge 的 delta 是「近 60 秒滾動累計」,逐秒加總會放大約 60 倍;改取每分鐘最後一筆(見 orderflow_minutes.py)
+    mrows = OM.minute_rows([r for _, r in recs], step)
+    times, rows, cum, cum_tr = [], [], 0.0, 0.0
+    for m in mrows:
+        d = fnum(m.get("delta"))
+        dt_ = fnum(m.get("delta_tr")) if m.get("delta_tr") is not None else None
+        cum += d
+        if dt_ is not None:
+            cum_tr += dt_
+        rows.append([round(cum, 1), round(d, 1), round(fnum(m.get("delta_buy")), 1), round(fnum(m.get("delta_sell")), 1),
+                     round(cum_tr, 1) if dt_ is not None else None, round(dt_, 1) if dt_ is not None else None])
+        times.append(m["t"])
     return dict(step=step, times=times, rows=rows)
 
 
@@ -1530,12 +1529,17 @@ def _orderflow_history(cfg, window_secs=3600):
         except (TypeError, ValueError):
             return 0.0
 
-    delta_sum = sum(f(r, "delta") for r in recs)
-    vol_sum = sum(f(r, "vol") for r in recs)
-    big_sum = sum(f(r, "big") for r in recs)
-    big_vol_sum = sum(f(r, "big_vol") for r in recs)
-    sw_buy = int(sum(f(r, "sweep_buy") for r in recs))
-    sw_sell = int(sum(f(r, "sweep_sell") for r in recs))
+    # bridge 的欄位是「近 60 秒滾動累計」:逐秒加總會放大約 60 倍,改用每分鐘最後一筆再相加
+    mrows = OM.minute_rows(recs)
+
+    def ms(k, rows=None):
+        return sum((m.get(k) or 0.0) for m in (mrows if rows is None else rows))
+    delta_sum = ms("delta")
+    vol_sum = ms("vol")
+    big_sum = ms("big")
+    big_vol_sum = ms("big_vol")
+    sw_buy = int(ms("sweep_buy"))
+    sw_sell = int(ms("sweep_sell"))
     spots = []
     for r in recs:
         v = f(r, "spot")
@@ -1565,7 +1569,7 @@ def _orderflow_history(cfg, window_secs=3600):
             parts.append(f"現價 {spot_first:.1f} → {spot_last:.1f}({chg:+.1f})")
     if vol_sum > 0 and delta_sum != 0:
         t10 = now - 600
-        delta_recent = sum(f(r, "delta") for r in recs if r.get("received_at", 0.0) >= t10)
+        delta_recent = ms("delta", [m for m in mrows if m["t"] + 60 > t10])
         if delta_recent * delta_sum < 0:
             parts.append(f"近10分鐘 Delta {delta_recent:+.0f} 口(與前段方向相反,留意轉向)")
         elif abs(delta_recent / delta_sum) > 0.6:
@@ -2452,6 +2456,69 @@ def api_errors(con, q):
     return dict(errors=list(_ERRORS), now=int(time.time()))
 
 
+def _corr(a, b):
+    n = len(a)
+    if n < 3:
+        return None
+    ma, mb = sum(a) / n, sum(b) / n
+    va = sum((x - ma) ** 2 for x in a)
+    vb = sum((y - mb) ** 2 for y in b)
+    if va <= 0 or vb <= 0:
+        return None
+    return sum((x - ma) * (y - mb) for x, y in zip(a, b)) / math.sqrt(va * vb)
+
+
+def api_orderflow(con, q):
+    """盤面指標頁與熱圖用的 Bookmap 訂單流:最新一筆讀數、每分鐘歷史(已修正滾動窗口重複計算)、
+    近價掛單牆、delta(MBO 推判)與 delta_tr(實際成交)的對照。新欄位尚未用真資料核對。"""
+    cfg = load_config()
+    try:
+        minutes = max(5, min(180, int(q.get("minutes", 60))))
+    except (TypeError, ValueError):
+        minutes = 60
+    of = _load_orderflow(cfg)
+    out = dict(ok=False, connected=of is not None, available=False, stale=False, age_sec=None, lag_sec=None,
+               latest={}, bids=[], asks=[], minutes=[], check={}, spot=None)
+    if of is None:
+        return out
+    d = of["data"]
+    out.update(ok=True, available=of["available"], stale=of["stale"], age_sec=of["age_sec"], lag_sec=of["lag_sec"], spot=d.get("spot"))
+    keys = ("delta", "delta_tr", "vol", "vol_tr", "cvd_tr", "cvd_mbo", "imb", "imb_big", "big", "big_vol", "sweep_buy", "sweep_sell",
+            "pull_bid", "pull_ask", "stack_bid", "stack_ask")
+    out["latest"] = dict((k, d.get(k)) for k in keys if d.get(k) is not None)
+
+    def walls(items, n=10):
+        rows = []
+        for it in items or []:
+            try:
+                rows.append([round(float(it[0]), 2), int(round(float(it[1])))])
+            except (TypeError, ValueError, IndexError):
+                continue
+        rows.sort(key=lambda r: -r[1])
+        return rows[:n]
+    out["bids"] = walls(d.get("book_bid"))
+    out["asks"] = walls(d.get("book_ask"))
+    out["book_tot"] = dict(bid=sum(int(round(float(x[1]))) for x in (d.get("book_bid") or []) if len(x) > 1),
+                           ask=sum(int(round(float(x[1]))) for x in (d.get("book_ask") or []) if len(x) > 1))
+    mrows = OM.minute_rows(_of_hist_recent(minutes * 60 + 120))[-minutes:]
+
+    def r1(v, nd=1):
+        return None if v is None else round(v, nd)
+    out["minutes"] = [dict(t=m["t"], delta=r1(m["delta"]), delta_tr=r1(m["delta_tr"]), vol=r1(m["vol"]), vol_tr=r1(m["vol_tr"]),
+                           cvd_tr=r1(m["cvd_tr"]), cvd_mbo=r1(m["cvd_mbo"]), imb=r1(m["imb"], 3), imb_big=r1(m["imb_big"], 3),
+                           big=r1(m["big"]), sb=r1(m["sweep_buy"], 0), ss=r1(m["sweep_sell"], 0),
+                           pb=r1(m["pull_bid"]), pa=r1(m["pull_ask"]), kb=r1(m["stack_bid"]), ka=r1(m["stack_ask"]), spot=r1(m["spot"], 2))
+                       for m in mrows]
+    both = [(m["delta"], m["delta_tr"]) for m in mrows if m["delta"] is not None and m["delta_tr"] is not None]
+    if both:
+        agree = sum(1 for a, b in both if a * b > 0)
+        nz = sum(1 for a, b in both if a != 0 and b != 0)
+        out["check"] = dict(n=len(both), sign_agree=(round(100.0 * agree / nz) if nz else None),
+                            corr=r1(_corr([a for a, _ in both], [b for _, b in both]), 2),
+                            sum_mbo=r1(sum(a for a, _ in both), 0), sum_tr=r1(sum(b for _, b in both), 0))
+    return out
+
+
 def api_flowmark(con, q):
     """orderflow 大單+掃單事件(附價位):從 orderflow.json 的 trades([價,買量,賣量])推出,
     讓前端標在熱圖對應價位,跟選擇權大單交叉比對。無資料回 ok=True + 空 events(不報錯)。"""
@@ -2499,7 +2566,7 @@ def api_flowmark(con, q):
     return out
 
 
-ROUTES = dict(squeeze=api_squeeze, flowmom=api_flowmom, heatx=api_heat_x, book=api_book, events=api_events, history=api_history, days=api_days, heat=api_heat, net=api_net, levels=api_levels, status=api_status, bars=api_bars, dte=api_dte, net3=api_net3, band=api_band, band0=api_band0, pcr=api_pcr, skew=api_skew, flow=api_flow, thesis=api_thesis, ask=api_ask, aimentor=api_ai_mentor, daily=api_daily, speak=api_speak, errors=api_errors, flowmark=api_flowmark)
+ROUTES = dict(squeeze=api_squeeze, flowmom=api_flowmom, heatx=api_heat_x, book=api_book, events=api_events, history=api_history, days=api_days, heat=api_heat, net=api_net, levels=api_levels, status=api_status, bars=api_bars, dte=api_dte, net3=api_net3, band=api_band, band0=api_band0, pcr=api_pcr, skew=api_skew, flow=api_flow, thesis=api_thesis, ask=api_ask, aimentor=api_ai_mentor, daily=api_daily, speak=api_speak, errors=api_errors, flowmark=api_flowmark, orderflow=api_orderflow)
 
 
 # ----------------------------- IBKR 1-minute candles (optional, own process) -----------------------------

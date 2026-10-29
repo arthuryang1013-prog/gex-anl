@@ -20,14 +20,14 @@ const DEF = { hours: 8, day: null, tz: 'Asia/Taipei', srcs: ['NQ', 'QQQ', 'NDX']
   pal: { name: '預設', low: '#3752cd', mid: '#1c96c3', high: '#ffbc48', pos: '#2bc08b', neg: '#ff5c6c' },
   gridH: false, gridV: false, cross: 'normal', pmode: 0, auto: true, pline: true, llabels: true, stay: false, lw: 3, roff: 8, nosb: false,
   subMode: 'net', sqrib: false, emband: true, anly: 'pcr', anlyPcrBasis: 'vol', anlySkewSrc: 'NQ', anlyDivBasis: 'oi', anlyDivScope: 'all',
-  flmark: true, sets: false, mmini: true, lineCol: { NQ: '#7d9bd9', QQQ: '#39d98a', NDX: '#e7a44c', WGT: '#ff7ad9' } };
+  flmark: true, bkwall: true, sets: false, mmini: true, lineCol: { NQ: '#7d9bd9', QQQ: '#39d98a', NDX: '#e7a44c', WGT: '#ff7ad9' } };
 const S = { ...DEF };
 try { if (/[?&]reset\b/.test(location.search)) localStorage.removeItem('gexweb.v1'); } catch (e) { /* ignore */ }
 try { const o = JSON.parse(localStorage.getItem('gexweb.v1') || '{}'); Object.assign(S, o); S.pal = { ...DEF.pal, ...(o.pal || {}) }; S.evTypes = { ...DEF.evTypes, ...(o.evTypes || {}) }; S.wgt = { ...DEF.wgt, ...(o.wgt || {}) }; S.lineCol = { ...DEF.lineCol, ...(o.lineCol || {}) }; if ((o.wver || 0) < 2) { S.wgt = { ...DEF.wgt }; S.wver = 2; } if (S.subMode !== 'net' && S.subMode !== 'sq') S.subMode = 'net'; if (!['pcr', 'skew', 'div'].includes(S.anly)) S.anly = 'pcr'; if (!['vol', 'oi'].includes(S.anlyPcrBasis)) S.anlyPcrBasis = 'vol'; if (!['NQ', 'QQQ', 'NDX'].includes(S.anlySkewSrc)) S.anlySkewSrc = 'NQ'; if (!['oi', 'vol'].includes(S.anlyDivBasis)) S.anlyDivBasis = 'oi'; if (!['all', 'ex0', 'zero'].includes(S.anlyDivScope)) S.anlyDivScope = 'all'; } catch (e) { /* storage may be blocked */ }
 const save = () => { try { localStorage.setItem('gexweb.v1', JSON.stringify(S)); } catch (e) { /* ignore */ } };
 
 /* ------------------------------ state ------------------------------ */
-const D = { kind: 'candles', bars: [], barT: [], cols: [], vmax: {}, levels: {}, net3: null, status: null, days: [], last: null, lastLatest: null, token: 0, lvPts: {}, heatTok: 0, events: [], srvEvents: [], book: null, sq: null, sqTok: 0, band: null, bandUpPts: [], bandDnPts: [], band0: null, band0UpPts: [], band0DnPts: [], pcr: null, skew: null, div: null, flow: null, flowTs: null, anlyTs: null, thesis: null, thesisTs: null };
+const D = { of: null, ofTs: 0, kind: 'candles', bars: [], barT: [], cols: [], vmax: {}, levels: {}, net3: null, status: null, days: [], last: null, lastLatest: null, token: 0, lvPts: {}, heatTok: 0, events: [], srvEvents: [], book: null, sq: null, sqTok: 0, band: null, bandUpPts: [], bandDnPts: [], band0: null, band0UpPts: [], band0DnPts: [], pcr: null, skew: null, div: null, flow: null, flowTs: null, anlyTs: null, thesis: null, thesisTs: null };
 const R = { on: false, idx: 0, timer: null };   // replay
 let hoverIdx = -1;                               // heat column under the mouse
 
@@ -186,6 +186,8 @@ const flowCum = subChart.addSeries(LW.BaselineSeries, {
   lineWidth: 2, visible: false, lastValueVisible: true, priceLineVisible: false, title: '累積Δ',
   priceFormat: { type: 'custom', formatter: (v) => f0.format(v) + ' 口', minMove: 1 },
 });
+const flowCumTr = subChart.addSeries(LW.LineSeries, { color: '#e7a44c', lineWidth: 1, lineStyle: 2, visible: false, lastValueVisible: false, priceLineVisible: false, title: '成交Δ',
+  priceFormat: { type: 'custom', formatter: (v) => f0.format(v) + ' 口', minMove: 1 } });
 const spdSeries = subChart.addSeries(LW.HistogramSeries, { visible: false, priceScaleId: 'spd', lastValueVisible: false, priceLineVisible: false,
   priceFormat: { type: 'custom', formatter: (v) => f0.format(v) + ' 口/分', minMove: 1 } });
 subChart.priceScale('spd').applyOptions({ scaleMargins: { top: 0.58, bottom: 0.03 }, borderVisible: false, visible: false });
@@ -1086,28 +1088,31 @@ function applySq() {
   netZero.applyOptions({ visible: !sq });
   netEx0.applyOptions({ visible: !sq });
   flowCum.applyOptions({ visible: sq });
+  flowCumTr.applyOptions({ visible: sq });
   spdSeries.applyOptions({ visible: sq });
   subChart.priceScale('spd').applyOptions({ visible: false });
   subChart.priceScale('right').applyOptions({ scaleMargins: sq ? { top: 0.14, bottom: 0.46 } : { top: 0.18, bottom: 0.12 } });
   $('#subwrap').classList.toggle('tall', sq);
-  if (!sq) { flowCum.setData([]); spdSeries.setData([]); }
+  if (!sq) { flowCum.setData([]); flowCumTr.setData([]); spdSeries.setData([]); }
   if (!sq) { applyNet(); return; }
-  const cum = [], bars = []; let k = -1; const R = D.sq;
+  const cum = [], cumTr = [], bars = []; let k = -1; const R = D.sq;
   for (let i = 0; i < D.barT.length; i++) {
     const t = D.barT[i];
     if (R) { while (k + 1 < R.times.length && R.times[k + 1] <= t) k++; }
     const row = R && k >= 0 && t - R.times[k] < 1800 ? R.rows[k] : null;
     if (row) {
       cum.push({ time: t, value: row[0] });
+      cumTr.push(row[4] != null ? { time: t, value: row[4] } : { time: t });
       bars.push({ time: t, value: row[1], color: row[1] >= 0 ? 'rgba(38,201,139,.8)' : 'rgba(255,92,108,.8)' });
     } else {
-      cum.push({ time: t }); bars.push({ time: t });
+      cum.push({ time: t }); cumTr.push({ time: t }); bars.push({ time: t });
     }
   }
   D.flowMax = R ? Math.max(1, ...R.rows.filter(Boolean).map((r) => Math.abs(r[1]))) : 1;
   flowCum.setData(cum);
+  flowCumTr.setData(cumTr);
   spdSeries.setData(bars);
-  $('#subtitle').textContent = '訂單流動能 · 線:累積 Delta(綠正/紅負,口)· 柱:每分鐘主動買賣淨量(綠買/紅賣)· Bookmap 真實訂單流';
+  $('#subtitle').textContent = '訂單流動能 · 線:累積 Delta(實線,掛單事件推判)· 橘虛線:累積 Delta(實際成交,新欄位未核對,可跟 Bookmap CVD 對照形狀)· 柱:每分鐘淨量(綠買/紅賣)· Bookmap 訂單流';
 }
 function setSubMode(m) {
   S.subMode = m; save(); syncUI(); applySq();
@@ -1285,7 +1290,7 @@ async function poll() {
       D.lastLatest = st.latest;
       if (!S.day) await loadAll(false); else renderSide();
     }
-    if (!S.day) { await pollBars(); loadEvents(false); loadFlowMarks(); }
+    if (!S.day) { await pollBars(); loadEvents(false); loadFlowMarks(); loadOrderflow(); }
     updateGlance();
     if (!$('#view-anly').classList.contains('hidden') && st.latest !== D.anlyTs) loadAnalysis();
     if (!$('#view-table').classList.contains('hidden') && st.latest !== D.flowTs) loadFlow();
@@ -1563,6 +1568,7 @@ $('#layers').addEventListener('click', (e) => {
   if (k === 'events') { evPrim.redraw(); updateBell(); }
   if (k === 'sqrib' && S.sqrib) loadSq();
   if (k === 'mmarks') loadMentorMarks();
+  if (k === 'bkwall') { loadOrderflow(true); bookWallPrim.redraw(); }
   if (k === 'mscene') applyChartPrefs();
   redraw(); updateLegend();
 });
@@ -1945,7 +1951,7 @@ $('#tabs').addEventListener('click', (e) => {
   $('#view-review').classList.toggle('hidden', b.dataset.tab !== 'review');
   if (b.dataset.tab === 'table') { renderTable(); loadFlow(); }
   if (b.dataset.tab === 'anly') { anlyVis(); anlyMeta(); loadAnalysis(); setTimeout(fitAnly, 60); }
-  if (b.dataset.tab === 'mentor') loadThesis();
+  if (b.dataset.tab === 'mentor') { loadThesis(); loadOrderflow(true); }
   if (b.dataset.tab === 'review') loadDaily(false);
 
 });
@@ -2211,6 +2217,95 @@ async function loadFlowMarks() {
     flowMarks = (r && r.events) || [];
   } catch (e) { flowMarks = []; }
   flowMarkPrim.redraw();
+}
+
+/* ---- Bookmap 訂單流:盤面指標頁區塊 + 熱圖掛單牆圖層 ---- */
+async function loadOrderflow(force) {
+  const mv = !$('#view-mentor').classList.contains('hidden');
+  const now = Date.now();
+  if (!force && now - D.ofTs < (mv ? 8000 : 15000)) return;
+  D.ofTs = now;
+  try { D.of = await api('orderflow', { minutes: mv ? 60 : 5 }); } catch (e) { D.of = null; }
+  bookWallPrim.redraw(); renderOfPanel();
+}
+class BookWallPrim {
+  attached(p) { this.series = p.series; this.chart = p.chart; this.req = p.requestUpdate; }
+  detached() {}
+  updateAllViews() {}
+  redraw() { if (this.req) this.req(); }
+  paneViews() { return this._v || (this._v = [{ zOrder: () => 'top', renderer: () => ({ draw: (t) => this.draw(t) }) }]); }
+  draw(target) {
+    target.useBitmapCoordinateSpace((sc) => {
+      const R = D.of;
+      if (!S.bkwall || !R || !R.available) return;
+      const ctx = sc.context, hr = sc.horizontalPixelRatio, vr = sc.verticalPixelRatio, W = sc.bitmapSize.width;
+      const all = [...R.bids, ...R.asks]; if (!all.length) return;
+      const mx = Math.max(...all.map((x) => x[1]));
+      const maxLen = Math.min(160 * hr, W * 0.22);
+      ctx.font = `600 ${10 * hr}px -apple-system,"PingFang TC","Noto Sans TC",sans-serif`; ctx.textBaseline = 'middle'; ctx.textAlign = 'right';
+      const draw1 = (items, col) => {
+        items.forEach((it, i) => {
+          const y = this.series.priceToCoordinate(it[0]); if (y == null) return;
+          const len = Math.max(3 * hr, maxLen * it[1] / mx), h = 5 * vr;
+          ctx.globalAlpha = 0.55; ctx.fillStyle = col; ctx.fillRect(W - len, y * vr - h / 2, len, h);
+          ctx.globalAlpha = 1;
+          if (i < 4) { ctx.fillStyle = col; ctx.fillText(`${f0.format(it[1])}`, W - len - 4 * hr, y * vr); }
+        });
+      };
+      draw1(R.bids, '#2bc08b'); draw1(R.asks, '#ff5c6c');
+    });
+  }
+}
+const bookWallPrim = new BookWallPrim(); candle.attachPrimitive(bookWallPrim); window.__bkw = bookWallPrim;
+function renderOfPanel() {
+  const el = $('#mFlowBox'); if (!el) return;
+  const R = D.of;
+  if (!R || !R.ok) { el.innerHTML = '<p class="ofStat">還沒有收到 Bookmap 訂單流(Windows 那台的 bridge 沒送資料,或伺服器沒有 orderflow.json)。</p>'; return; }
+  const L = R.latest || {}, fx = (v, d = 0) => (v == null ? '—' : (+v).toLocaleString('en-US', { maximumFractionDigits: d }));
+  const sg = (v, d = 0) => (v == null ? '—' : (v > 0 ? '+' : '') + fx(v, d));
+  const cls = (v) => (v > 0 ? 'up' : v < 0 ? 'dn' : '');
+  const st = R.available ? `<b class="ok">連線中</b> · ${Math.round(R.age_sec)} 秒前更新` : `<b class="warn">資料過時</b>(${R.age_sec != null ? Math.round(R.age_sec) + ' 秒前' : '—'})· 下列讀數可能已落後`;
+  let h = `<p class="ofStat">${st}${R.spot ? ` · Bookmap 價 ${fx(R.spot, 2)}` : ''}</p>`;
+  const row = (n, v, hint, c) => `<tr><td>${n}</td><td class="n ${c || ''}">${v}</td><td>${hint}</td></tr>`;
+  h += '<table class="ofTbl"><tr><th>項目(近 60 秒)</th><th>數值</th><th>怎麼看</th></tr>'
+    + row('Delta(掛單事件推判)', sg(L.delta), `買方主動 − 賣方主動;總量 ${fx(L.vol)} 口。MBO 推判可能低估`, cls(L.delta))
+    + row('Delta(實際成交)', sg(L.delta_tr), `用成交算的版本;總量 ${fx(L.vol_tr)} 口。<em>新欄位,未核對</em>`, cls(L.delta_tr))
+    + row('CVD(成交 / 推判)', `${sg(L.cvd_tr)} / ${sg(L.cvd_mbo)}`, '從 bridge 啟動起累計。可對照 Bookmap 的 CVD 看斜率是否一致')
+    + row('掛單失衡(近價 / 舊算法)', `${L.imb != null ? (+L.imb).toFixed(2) : '—'} / ${L.imb_big != null ? (+L.imb_big).toFixed(2) : '—'}`, '>0 買方掛單較厚;舊算法取量最大的幾檔,不管離現價多遠', cls(L.imb))
+    + row('大單淨量', sg(L.big), `大單總量 ${fx(L.big_vol)} 口`, cls(L.big))
+    + row('掃單 買 / 賣', `${fx(L.sweep_buy)} / ${fx(L.sweep_sell)}`, '短時間連續吃掉多檔的次數')
+    + row('近價撤單 買 / 賣', `${fx(L.pull_bid)} / ${fx(L.pull_ask)}`, '5 點內撤掉的掛單量;被成交吃掉的也可能算進來')
+    + row('近價新掛 買 / 賣', `${fx(L.stack_bid)} / ${fx(L.stack_ask)}`, '5 點內新增的掛單量')
+    + (R.book_tot ? row('±100 點掛單總量 買 / 賣', `${fx(R.book_tot.bid)} / ${fx(R.book_tot.ask)}`, '整體掛單厚度,不是方向保證') : '')
+    + '</table>';
+  const M = R.minutes || [];
+  if (M.length >= 3) {
+    const W = 560, H = 150, pl = 6, pr = 40, pt = 6, pb = 16;
+    let c1 = 0, c2 = 0; const cm = [], ct = [];
+    for (const m of M) { c1 += m.delta || 0; cm.push(c1); if (m.delta_tr != null) c2 += m.delta_tr; ct.push(c2); }
+    const bars = M.map((m) => m.delta_tr != null ? m.delta_tr : (m.delta || 0));
+    const ext = (a) => [Math.min(0, ...a), Math.max(0, ...a)];
+    const [lo1, hi1] = ext([...cm, ...ct]), [lo2, hi2] = ext(bars);
+    const X = (i) => pl + (W - pl - pr) * i / (M.length - 1 || 1);
+    const yLine = (v) => pt + (H - pt - pb) * 0.62 * (1 - (v - lo1) / ((hi1 - lo1) || 1));
+    const zeroB = H - pb, bh = (H - pt - pb) * 0.34, sc = bh / (Math.max(Math.abs(lo2), Math.abs(hi2)) || 1);
+    let g = `<svg class="ofSvg" viewBox="0 0 ${W} ${H}">`;
+    const bw = Math.max(1, (W - pl - pr) / M.length * 0.7);
+    M.forEach((m, i) => { const v = bars[i]; g += `<rect x="${(X(i) - bw / 2).toFixed(1)}" y="${(v >= 0 ? zeroB - v * sc : zeroB).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(0.5, Math.abs(v) * sc).toFixed(1)}" fill="${v >= 0 ? UP : DN}" opacity=".7"/>`; });
+    const pl_ = (a, col, w, dash) => `<polyline fill="none" stroke="${col}" stroke-width="${w}" ${dash ? 'stroke-dasharray="4 3"' : ''} points="${a.map((v, i) => X(i).toFixed(1) + ',' + yLine(v).toFixed(1)).join(' ')}"/>`;
+    g += `<line x1="${pl}" x2="${W - pr}" y1="${yLine(0).toFixed(1)}" y2="${yLine(0).toFixed(1)}" stroke="#5b6b80" stroke-width=".8"/>`;
+    g += pl_(cm, '#7d9bd9', 1.8) + pl_(ct, ORANGE, 1.6, true);
+    g += `<text x="${W - pr + 3}" y="${(yLine(cm[cm.length - 1]) + 3).toFixed(1)}" fill="#7d9bd9" font-size="9">${sg(cm[cm.length - 1])}</text>`;
+    g += `<text x="${W - pr + 3}" y="${(yLine(ct[ct.length - 1]) + (Math.abs(yLine(ct[ct.length - 1]) - yLine(cm[cm.length - 1])) < 10 ? 12 : 3)).toFixed(1)}" fill="${ORANGE}" font-size="9">${sg(ct[ct.length - 1])}</text>`;
+    g += `<text x="${pl}" y="${H - 2}" fill="#8b97a8" font-size="9">${hmIn(M[0].t, 'Asia/Taipei')}</text><text x="${W - pr}" y="${H - 2}" text-anchor="end" fill="#8b97a8" font-size="9">${hmIn(M[M.length - 1].t, 'Asia/Taipei')}(台北)</text></svg>`;
+    h += `<div class="ofLegend"><i style="background:#7d9bd9"></i>累積 Delta(推判)<i style="background:${ORANGE}"></i>累積 Delta(成交)<i style="background:${UP}"></i>柱=每分鐘成交 Delta</div>` + g;
+  }
+  const wl = (items, ref) => items.slice(0, 5).map((x) => `<div>${fx(x[0], 2)} · ${fx(x[1])} 口${R.spot ? ` <span class="dim">(${sg(x[0] - R.spot, 1)} 點)</span>` : ''}</div>`).join('') || '<div class="dim">—</div>';
+  h += `<div class="ofWalls"><div><h5>買方掛單牆(下方支撐?)</h5>${wl(R.bids)}</div><div><h5>賣方掛單牆(上方壓力?)</h5>${wl(R.asks)}</div></div>`;
+  const C = R.check || {};
+  h += `<p class="ofChk">${C.n ? `近 ${C.n} 分鐘兩種 Delta:方向一致 ${C.sign_agree == null ? '—' : C.sign_agree + '%'} · 相關係數 ${C.corr == null ? '—' : C.corr} · 合計 推判 ${sg(C.sum_mbo)} / 成交 ${sg(C.sum_tr)}。` : ''}`
+    + '掛單牆是「當下」的掛單,可以撤掉或被假掛(spoofing),不等於支撐壓力;這些讀數沒有經過命中率驗證,也還沒跟 Bookmap 畫面逐項核對。</p>';
+  el.innerHTML = h;
 }
 const fmtTime = (t) => `台北 ${hmIn(t, 'Asia/Taipei')} · 紐約 ${hmIn(t, 'America/New_York')} · ${md(t)}`;
 function evTitle(e) {

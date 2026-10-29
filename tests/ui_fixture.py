@@ -51,8 +51,35 @@ def build(d, of_mode="live"):
                        regime_s=0.4 if "正" in rg else -0.4, strength="中", confidence=62, path=os.path.join(d, "mentor_log.sqlite"))
     # 訂單流
     of = os.path.join(d, "orderflow.json")
-    pkt = dict(ts=now, received_at=now, idle_sec=0.4, lag_sec=0.4, delta=-12.0, delta_buy=40.0, delta_sell=52.0, vol=92.0, imb=0.12,
-               big=0, big_vol=0, sweep_buy=0, sweep_sell=1, spot=spot_last, book_bid=[], book_ask=[], trades=[])
+    # 歷史:模擬 bridge 的「近 60 秒滾動累計」(每秒一筆),delta_tr 與 delta 大致同向但不相同
+    hist_path = os.path.join(d, "orderflow_history.jsonl")
+    rnd = random.Random(7)
+    win, cvd_tr, cvd_mbo, recs = [], 0.0, 0.0, []
+    for sec in range(90 * 60, 0, -1):
+        t = now - sec
+        trend = math.sin(sec / 400.0)
+        b, sl = max(0.0, rnd.gauss(4 + 2 * trend, 2)), max(0.0, rnd.gauss(4 - 2 * trend, 2))
+        mb = b * 0.8 + rnd.gauss(0, 0.5)
+        ms_ = sl * 0.8 + rnd.gauss(0, 0.5)
+        win.append((t, b, sl, mb, ms_))
+        while win and win[0][0] <= t - 60:
+            win.pop(0)
+        cvd_tr += b - sl; cvd_mbo += mb - ms_
+        sb = sum(x[1] for x in win); ss = sum(x[2] for x in win)
+        recs.append(dict(ts=t, received_at=t, idle_sec=0.3, lag_sec=0.3, delta=round(sum(x[3] - x[4] for x in win), 1),
+                         vol=round(sum(x[3] + x[4] for x in win), 1), delta_tr=round(sb - ss, 1), vol_tr=round(sb + ss, 1),
+                         cvd_tr=round(cvd_tr, 1), cvd_mbo=round(cvd_mbo, 1), imb=round(0.2 * trend + rnd.gauss(0, .05), 3),
+                         imb_big=round(-0.1 * trend, 3), big=round(rnd.gauss(0, 3), 1), big_vol=30.0, sweep_buy=int(rnd.random() < .1),
+                         sweep_sell=int(rnd.random() < .1), pull_bid=round(rnd.random() * 30, 1), pull_ask=round(rnd.random() * 30, 1),
+                         stack_bid=round(rnd.random() * 40, 1), stack_ask=round(rnd.random() * 40, 1), spot=spot_last))
+    with open(hist_path, "w") as f:
+        for r in recs:
+            f.write(json.dumps(r) + "\n")
+    last = recs[-1]
+    book_bid = [[round(spot_last - 0.25 * k, 2), int(30 + 200 * math.exp(-((k - 40) / 6.0) ** 2) + 120 * math.exp(-((k - 14) / 3.0) ** 2))] for k in range(1, 400, 4)]
+    book_ask = [[round(spot_last + 0.25 * k, 2), int(30 + 260 * math.exp(-((k - 55) / 6.0) ** 2) + 90 * math.exp(-((k - 22) / 3.0) ** 2))] for k in range(1, 400, 4)]
+    pkt = dict(last, ts=now, received_at=now, book_bid=book_bid, book_ask=book_ask,
+               trades=[[round(spot_last + 1.0, 2), 5.0, 40.0], [round(spot_last - 2.0, 2), 30.0, 3.0]])
     if of_mode == "none":
         pass
     else:
@@ -67,6 +94,7 @@ def serve(d, port, of_mode="live"):
     import mentor_log as ML
     G.CACHE_PATH = os.path.join(d, "web_cache.sqlite")
     G.ORDERFLOW_PATH = of
+    G.ORDERFLOW_HISTORY_PATH = os.path.join(d, "orderflow_history.jsonl")
     ML.LOG_PATH = os.path.join(d, "mentor_log.sqlite")
     G.load_config = lambda: {"orderflow_max_age_sec": 8}
     if of_mode == "stale":

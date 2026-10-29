@@ -136,24 +136,15 @@ def _orderflow_section(hist, now_pkt, status):
             if items:
                 out.append(f"{side}最大幾檔:" + " ".join(f"{_f(i[0], 2)}:{_f(i[1], 0)}" for i in items))
     if hist:
-        g = {}
-        for r in hist:
-            ts = r.get("received_at")
-            if ts:
-                g.setdefault(int(ts // 60) * 60, []).append(r)
-        out.append("每分鐘彙整(紐約時間;delta/vol/pull/stack 為該分鐘內逐秒欄位加總,cvd_tr 取分鐘最後值,imb 取平均):"
+        import orderflow_minutes as OM
+        rows = OM.minute_rows(hist)
+        out.append("每分鐘彙整(紐約時間;bridge 的 delta/vol/pull/stack 是「近 60 秒滾動累計」,這裡取每分鐘最後一筆,約等於該分鐘的量;"
+                   "cvd_tr 為累計值取分鐘最後值,imb 取分鐘平均):"
                    "time delta delta_tr vol cvd_tr imb pull_b pull_a stack_b stack_a")
-
-        def fs(rs, k):
-            return sum(float(x.get(k) or 0) for x in rs)
-
-        for k in sorted(g)[-60:]:
-            rs = g[k]
-            imb = [float(x["imb"]) for x in rs if x.get("imb") is not None]
-            cvd = [x.get("cvd_tr") for x in rs if x.get("cvd_tr") is not None]
-            out.append(f"{_hm(k, NY)} {_f(fs(rs, 'delta'), 0)} {_f(fs(rs, 'delta_tr'), 0)} {_f(fs(rs, 'vol'), 0)} "
-                       f"{_f(cvd[-1], 0) if cvd else '-'} {_f(sum(imb) / len(imb), 2) if imb else '-'} "
-                       f"{_f(fs(rs, 'pull_bid'), 0)} {_f(fs(rs, 'pull_ask'), 0)} {_f(fs(rs, 'stack_bid'), 0)} {_f(fs(rs, 'stack_ask'), 0)}")
+        for r in rows[-60:]:
+            out.append(f"{_hm(r['t'], NY)} {_f(r['delta'], 0)} {_f(r['delta_tr'], 0)} {_f(r['vol'], 0)} "
+                       f"{_f(r['cvd_tr'], 0)} {_f(r['imb'], 2)} "
+                       f"{_f(r['pull_bid'], 0)} {_f(r['pull_ask'], 0)} {_f(r['stack_bid'], 0)} {_f(r['stack_ask'], 0)}")
     else:
         out.append("(沒有訂單流歷史)")
     return out

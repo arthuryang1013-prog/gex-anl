@@ -21,7 +21,7 @@ with sync_playwright() as p:
         pg.click('button[data-tab="mentor"]'); pg.wait_for_timeout(1500)
         txt = pg.inner_text('#mStable'); mdir = pg.inner_text('#mDir')
         print(name, "| 標籤:", mdir.replace("\n", " "), "|", txt[:120].replace("\n", " "))
-        assert "舊標籤" in txt and "穩定標籤翻了" in txt and pg.query_selector('#mStable svg'), txt
+        assert "舊標籤" not in txt and "平滑後" in txt and pg.query_selector('#mStable svg'), txt
         pg.query_selector('#mentorCard').screenshot(path=os.path.join(out, f"stable-{name}.png"))
     b.close()
 print("錯誤:", errs or "無"); assert not errs; print("OK")
