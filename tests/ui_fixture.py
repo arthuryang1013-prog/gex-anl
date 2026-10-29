@@ -4,6 +4,9 @@ import datetime as dt, json, math, os, random, sys, tempfile, threading, time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
+SEED_AI = False      # True:另外塞兩則 AI 導師評論(ui_marks 用)
+
+
 def build(d, of_mode="live"):
     import nq_gex_collector as C
     random.seed(3)
@@ -49,6 +52,26 @@ def build(d, of_mode="live"):
         spot = [b for b in bars if b[0] <= t][-1][4]
         ML.log_comment("thesis", t, spot, f"{dr}:示範評論,現價 {spot:.0f}。(假資料)", direction=dr, score=sc, score_dir=sd, regime=rg,
                        regime_s=0.4 if "正" in rg else -0.4, strength="中", confidence=62, path=os.path.join(d, "mentor_log.sqlite"))
+    # 訂單流事件(吸收/冰山/力竭/掃單),時間分散在最近 2 小時,價位貼近 K 線
+    ev_path = os.path.join(d, "orderflow_events.jsonl")
+    kinds = [("absorb", "buy"), ("iceberg", "sell"), ("exhaust", "buy"), ("sweep", "sell"), ("sweep", "buy"), ("absorb", "sell"),
+             ("iceberg", "buy"), ("exhaust", "sell")]
+    with open(ev_path, "w") as f:
+        for i, (k, sd) in enumerate(kinds * 3):
+            t = now - 6900 + i * 280
+            px_ = [b for b in bars if b[0] <= t][-1][4]
+            e = dict(id=f"{i}-{k}", t=t, k=k, s=sd, p=round(px_ + (3 if k == "exhaust" and sd == "buy" else -3 if k == "exhaust" else 0), 2), v=40 + (i * 37) % 260)
+            if k == "sweep": e["x"] = dict(p0=round(px_ - (14 if sd == "buy" else -14), 2), lv=5)
+            if k == "absorb": e["x"] = dict(win=20, moved=0.5, base=60.0)
+            if k == "iceberg": e["x"] = dict(vis=6.0, n=9)
+            if k == "exhaust": e["x"] = dict(rise=6.0, tail=8.0)
+            f.write(json.dumps(e) + "\n")
+    # AI 導師的紀錄(K 線上只標 AI 導師的結論,規則版的 # 不再標)
+    if SEED_AI:
+      ML.log_comment("ai", now - 75 * 60, [b for b in bars if b[0] <= now - 75 * 60][-1][4], "AI 示範評論(假資料)。", direction="偏多", confidence=60, ai=True,
+                     path=os.path.join(d, "mentor_log.sqlite"))
+      ML.log_comment("ai", now - 25 * 60, [b for b in bars if b[0] <= now - 25 * 60][-1][4], "AI 示範評論 2(假資料)。", direction="偏空", confidence=55, ai=True,
+                     path=os.path.join(d, "mentor_log.sqlite"))
     # 訂單流
     of = os.path.join(d, "orderflow.json")
     # 歷史:模擬 bridge 的「近 60 秒滾動累計」(每秒一筆),delta_tr 與 delta 大致同向但不相同
@@ -94,6 +117,7 @@ def serve(d, port, of_mode="live"):
     import mentor_log as ML
     G.CACHE_PATH = os.path.join(d, "web_cache.sqlite")
     G.ORDERFLOW_PATH = of
+    G.ORDERFLOW_EVENTS_PATH = os.path.join(d, "orderflow_events.jsonl")
     G.ORDERFLOW_HISTORY_PATH = os.path.join(d, "orderflow_history.jsonl")
     ML.LOG_PATH = os.path.join(d, "mentor_log.sqlite")
     G.load_config = lambda: {"orderflow_max_age_sec": 8}

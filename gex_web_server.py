@@ -74,6 +74,7 @@ _ERRORS = collections.deque(maxlen=100)   # (dict) 最近 100 筆伺服器錯誤
 CONFIG_PATH = os.path.join(HERE, "config.json")
 ORDERFLOW_PATH = os.path.join(HERE, "orderflow.json")
 ORDERFLOW_HISTORY_PATH = os.path.join(HERE, "orderflow_history.jsonl")
+ORDERFLOW_EVENTS_PATH = os.path.join(HERE, "orderflow_events.jsonl")
 DEFAULT_ORDERFLOW_MAX_AGE = 60.0   # orderflow.json 超過幾秒沒更新就視為斷線
 DEFAULT_ORDERFLOW_MAX_LAG = 30.0   # Bookmap 事件延遲超過幾秒就標記為「過時,不可信」
 FLOW_WEIGHT = 0.30                 # 有 orderflow 時它在總結論的權重;GEX 三市場佔 1 - FLOW_WEIGHT
@@ -2422,6 +2423,34 @@ def api_errors(con, q):
     return dict(errors=list(_ERRORS), now=int(time.time()))
 
 
+def api_flowevents(con, q):
+    """orderflow 事件(吸收 / 冰山 / 力竭 / 掃單):orderflow_bridge 偵測、receiver 存檔,這裡依時間範圍讀出來給熱圖畫。
+    偵測規則是推測式線索,沒有驗證過預測力。沒有檔案或資料就回空清單(不報錯)。"""
+    try:
+        lo, hi = float(q["from"]), float(q["to"])
+    except (KeyError, TypeError, ValueError):
+        return dict(ok=False, error="需要 from / to(epoch 秒)", events=[])
+    out = []
+    try:
+        with open(ORDERFLOW_EVENTS_PATH, "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            f.seek(max(0, size - 8_000_000))
+            raw = f.read().decode("utf-8", "ignore").splitlines()
+    except Exception:
+        return dict(ok=True, events=[], n=0)
+    for ln in raw:
+        try:
+            e = json.loads(ln)
+        except Exception:
+            continue
+        t = e.get("t")
+        if isinstance(t, (int, float)) and lo <= t <= hi and e.get("k") in ("sweep", "absorb", "iceberg", "exhaust"):
+            out.append(e)
+    out.sort(key=lambda e: e["t"])
+    return dict(ok=True, events=out[-800:], n=len(out))
+
+
 def api_flowmark(con, q):
     """orderflow 大單+掃單事件(附價位):從 orderflow.json 的 trades([價,買量,賣量])推出,
     讓前端標在熱圖對應價位,跟選擇權大單交叉比對。無資料回 ok=True + 空 events(不報錯)。"""
@@ -2469,7 +2498,7 @@ def api_flowmark(con, q):
     return out
 
 
-ROUTES = dict(squeeze=api_squeeze, flowmom=api_flowmom, heatx=api_heat_x, book=api_book, events=api_events, history=api_history, days=api_days, heat=api_heat, net=api_net, levels=api_levels, status=api_status, bars=api_bars, dte=api_dte, net3=api_net3, band=api_band, band0=api_band0, pcr=api_pcr, skew=api_skew, flow=api_flow, thesis=api_thesis, ask=api_ask, aimentor=api_ai_mentor, daily=api_daily, speak=api_speak, errors=api_errors, flowmark=api_flowmark)
+ROUTES = dict(squeeze=api_squeeze, flowmom=api_flowmom, heatx=api_heat_x, book=api_book, events=api_events, history=api_history, days=api_days, heat=api_heat, net=api_net, levels=api_levels, status=api_status, bars=api_bars, dte=api_dte, net3=api_net3, band=api_band, band0=api_band0, pcr=api_pcr, skew=api_skew, flow=api_flow, thesis=api_thesis, ask=api_ask, aimentor=api_ai_mentor, daily=api_daily, speak=api_speak, errors=api_errors, flowmark=api_flowmark, flowevents=api_flowevents)
 
 
 # ----------------------------- IBKR 1-minute candles (optional, own process) -----------------------------

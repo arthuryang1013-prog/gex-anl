@@ -540,3 +540,12 @@ button.mkey:hover{border-color:var(--blue);color:var(--text)}
 .ruleTag{padding:8px 10px;border:1px dashed #3a4558;border-radius:8px;color:var(--mut,#8b97a8);font-size:12px}
 .ruleTag b{color:#c9d3e3;margin-right:6px;font-size:13px}
 .aiHist .row{padding:6px 0;border-bottom:1px solid var(--line)}
+
+.feTip{position:fixed;z-index:70;pointer-events:none;background:var(--panel,#121821);border:1px solid #2a3547;border-radius:10px;padding:10px 12px;box-shadow:0 8px 28px rgba(0,0,0,.5);font-size:12.5px;line-height:1.55}
+.feTip .feH{display:flex;gap:8px;align-items:baseline;margin-bottom:2px}.feTip .feH b{font-size:14px}.feTip .feH span{color:var(--muted)}
+.feTip .feT{color:var(--dim);font-size:11.5px;margin-bottom:4px}.feTip .feF{margin-top:6px;color:var(--dim);font-size:11px}
+.feLegend{position:absolute;left:12px;bottom:34px;z-index:5;display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:11px;color:var(--muted);background:rgba(10,13,18,.72);border:1px solid #232d3d;border-radius:8px;padding:4px 9px;backdrop-filter:blur(4px);pointer-events:none}
+.feLegend .feG{display:inline-flex;align-items:center;gap:4px}.feLegend i{font-style:normal;font-weight:700;font-size:9.5px;display:inline-grid;place-items:center;width:16px;height:16px;border:1.5px solid #8b97a8;color:#c9d3e3;border-radius:4px 4px 8px 8px}
+.feLegend i.dm{transform:rotate(0);border-radius:3px;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%);border:0;background:#8b97a855}
+.feLegend i.ci{border-radius:50%}.feLegend i.sw{border:0;border-left:3px solid #8b97a8;border-radius:0;width:12px}
+.feLegend em{font-style:normal;color:var(--dim)}

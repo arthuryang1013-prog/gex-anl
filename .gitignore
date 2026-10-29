@@ -44,3 +44,4 @@ __pycache__/
 orderflow_archive/
 universe_cache.json
 universe_cache.json.tmp
+orderflow_events.jsonl

@@ -1274,7 +1274,7 @@ async function poll() {
       D.lastLatest = st.latest;
       if (!S.day) await loadAll(false); else renderSide();
     }
-    if (!S.day) { await pollBars(); loadEvents(false); loadFlowMarks(); }
+    if (!S.day) { await pollBars(); loadEvents(false); loadFlowEvents(); }
     updateGlance();
     if (!$('#view-anly').classList.contains('hidden') && st.latest !== D.anlyTs) loadAnalysis();
     if (!$('#view-table').classList.contains('hidden') && st.latest !== D.flowTs) loadFlow();
@@ -1552,6 +1552,7 @@ $('#layers').addEventListener('click', (e) => {
   if (k === 'events') { evPrim.redraw(); updateBell(); }
   if (k === 'sqrib' && S.sqrib) loadSq();
   if (k === 'mmarks') loadMentorMarks();
+  if (k === 'flmark') { flowEvPrim.redraw(); updateFeLegend(); if (S.flmark) loadFlowEvents(); }
   if (k === 'mscene') applyChartPrefs();
   redraw(); updateLegend();
 });
@@ -1764,7 +1765,7 @@ async function loadMentorMarks() {
   try {
     for (const day of days) {
       const r = await api('daily', { day, scope: 'all' });
-      if (r && r.ok) items = items.concat(r.timeline.filter((x) => x.kind === 'thesis' || x.kind === 'ai'));
+      if (r && r.ok) items = items.concat(r.timeline.filter((x) => x.kind === 'ai'));
     }
   } catch (e) { items = []; }
   if (tok !== loadMentorMarks.tok) return;
@@ -1776,7 +1777,7 @@ async function loadMentorMarks() {
     const time = D.barT[bi];
     const long = x.direction && x.direction.indexOf('多') >= 0, short = x.direction && x.direction.indexOf('空') >= 0;
     const col = x.verdict === '命中' ? UP : x.verdict === '未命中' ? DN : '#8b97a8';
-    mk.push({ time, position: short ? 'aboveBar' : 'belowBar', shape: short ? 'arrowDown' : long ? 'arrowUp' : 'circle', color: col, text: (x.kind === 'ai' ? 'AI#' : '#') + x.id });
+    mk.push({ time, position: short ? 'aboveBar' : 'belowBar', shape: short ? 'arrowDown' : long ? 'arrowUp' : 'circle', color: col, text: 'AI#' + x.id });
     mentorMarkItems.push({ time, x });
   }
   mk.sort((a, b) => a.time - b.time);
@@ -2141,9 +2142,13 @@ class EventPrim {
 }
 const evPrim = new EventPrim(); candle.attachPrimitive(evPrim);
 
-/* ---- orderflow 大單/掃單標記:後端由 trades 推出帶價事件,畫在熱圖左緣 ---- */
-let flowMarks = [];
-class FlowMarkPrim {
+/* ---- orderflow 事件:吸收 / 冰山 / 力竭 / 掃單。bridge 偵測(推測式線索),畫在熱圖對應的時間與價位 ----
+   顏色語意:綠 = 偏多含意、紅 = 偏空含意;大小 = 口數。形狀:盾牌=吸收、菱形+虛線=冰山、圓圈+箭頭=力竭、粗線箭頭=掃單 */
+let flowEvents = [], feHits = [];
+const FE = { sweep: { name: '掃單', glyph: '掃' }, absorb: { name: '吸收', glyph: '吸' }, iceberg: { name: '冰山', glyph: '冰' }, exhaust: { name: '力竭', glyph: '竭' } };
+const feBull = (e) => (e.k === 'exhaust' ? e.s === 'sell' : e.s === 'buy');
+const feR = (e) => 6.5 + Math.min(4.5, Math.log10(Math.max(10, e.v) / 10) * 3.2);
+class FlowEvPrim {
   attached(p) { this.series = p.series; this.chart = p.chart; this.req = p.requestUpdate; }
   detached() {}
   updateAllViews() {}
@@ -2151,38 +2156,99 @@ class FlowMarkPrim {
   paneViews() { return this._v || (this._v = [{ zOrder: () => 'top', renderer: () => ({ draw: (t) => this.draw(t) }) }]); }
   draw(target) {
     target.useBitmapCoordinateSpace((sc) => {
-      if (!S.flmark) return;
-      if (!flowMarks.length) return;
-      const ctx = sc.context, hr = sc.horizontalPixelRatio, vr = sc.verticalPixelRatio;
-      const ser = this.series;
-      ctx.font = `700 ${10 * hr}px -apple-system,"PingFang TC","Noto Sans TC",sans-serif`; ctx.textBaseline = 'middle';
-      const ex = 10 * hr, used = new Map();
-      for (const m of flowMarks) {
-        const y = ser.priceToCoordinate(m.p); if (y == null) continue;
-        const col = m.side === 'buy' ? UP : DN;
-        const glyph = m.kind === 'sweep' ? '掃' : '大';
-        const k = Math.round(y / 15), n = used.get(k) || 0; used.set(k, n + 1);
-        const yy = (y - n * 15) * vr;
-        ctx.beginPath(); ctx.arc(ex, yy, 7 * hr, 0, 7);
-        ctx.fillStyle = col; ctx.globalAlpha = 0.95; ctx.fill(); ctx.globalAlpha = 1;
-        ctx.lineWidth = 1.4 * hr; ctx.strokeStyle = 'rgba(8,11,17,.9)'; ctx.stroke();
-        ctx.fillStyle = '#0a0d12'; ctx.textAlign = 'center';
-        ctx.fillText(glyph, ex, yy + 0.5 * hr);
-        ctx.textAlign = 'left'; ctx.fillStyle = col;
-        ctx.fillText(`${m.side === 'buy' ? '買' : '賣'} ${f0.format(m.vol)}`, ex + 10 * hr, yy);
+      feHits = [];
+      if (!S.flmark || !flowEvents.length || !D.barT.length) return;
+      const ctx = sc.context, hr = sc.horizontalPixelRatio, vr = sc.verticalPixelRatio, ts = this.chart.timeScale(), ser = this.series;
+      const W = sc.bitmapSize.width / hr;
+      const used = new Map();
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+      for (const e of flowEvents) {
+        const bi = lowerIdx(D.barT, e.t); if (bi < 0) continue;
+        let x = ts.timeToCoordinate(D.barT[bi]), y = ser.priceToCoordinate(e.p);
+        if (x == null || y == null || x < -20 || x > W + 20) continue;
+        const k = Math.round(x / 16) + ':' + Math.round(y / 16), n = used.get(k) || 0; used.set(k, n + 1);
+        x += (n % 2 ? 1 : -1) * Math.ceil(n / 2) * 15;          // 重疊時左右錯開
+        const bull = feBull(e), col = bull ? '#2bc08b' : '#ff5c6c', r = feR(e);
+        const X = x * hr, Y = y * vr, R = r * hr;
+        ctx.save();
+        ctx.fillStyle = col; ctx.strokeStyle = col;
+        if (e.k === 'sweep') {
+          const y0 = ser.priceToCoordinate((e.x && e.x.p0) || e.p); const Y0 = (y0 == null ? y : y0) * vr;
+          const dir = Y < Y0 ? -1 : 1;                                       // 往上掃 = 畫面上 Y 變小
+          ctx.globalAlpha = 0.16; ctx.lineWidth = 8 * hr; ctx.beginPath(); ctx.moveTo(X, Y0); ctx.lineTo(X, Y); ctx.stroke();
+          ctx.globalAlpha = 0.95; ctx.lineWidth = 2.6 * hr; ctx.beginPath(); ctx.moveTo(X, Y0); ctx.lineTo(X, Y - dir * 4 * hr); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(X, Y); ctx.lineTo(X - 5 * hr, Y - dir * 8 * hr); ctx.lineTo(X + 5 * hr, Y - dir * 8 * hr); ctx.closePath(); ctx.fill();
+          ctx.font = `700 ${9.5 * hr}px -apple-system,"PingFang TC","Noto Sans TC",sans-serif`; ctx.textAlign = 'left';
+          ctx.globalAlpha = 0.95; ctx.fillText('掃 ' + e.v, X + 7 * hr, (Y + Y0) / 2);
+        } else {
+          ctx.lineWidth = 1.6 * hr;
+          if (e.k === 'iceberg') {                                           // 價位虛線 + 菱形
+            ctx.globalAlpha = 0.5; ctx.setLineDash([4 * hr, 3 * hr]); ctx.beginPath(); ctx.moveTo(X - 40 * hr, Y); ctx.lineTo(X + 40 * hr, Y); ctx.stroke(); ctx.setLineDash([]);
+            ctx.beginPath(); ctx.moveTo(X, Y - R * 1.2); ctx.lineTo(X + R * 1.1, Y); ctx.lineTo(X, Y + R * 1.2); ctx.lineTo(X - R * 1.1, Y); ctx.closePath();
+          } else if (e.k === 'absorb') {                                     // 盾牌
+            ctx.beginPath(); ctx.moveTo(X - R, Y - R * 0.85); ctx.lineTo(X + R, Y - R * 0.85); ctx.lineTo(X + R, Y + R * 0.1);
+            ctx.quadraticCurveTo(X + R, Y + R * 0.95, X, Y + R * 1.2); ctx.quadraticCurveTo(X - R, Y + R * 0.95, X - R, Y + R * 0.1); ctx.closePath();
+          } else {                                                           // 力竭:圓圈 + 預期反轉方向的小箭頭
+            ctx.beginPath(); ctx.arc(X, Y, R, 0, 7);
+            const up = bull, ay = up ? Y - R - 7 * hr : Y + R + 7 * hr, d = up ? 1 : -1;
+            ctx.globalAlpha = 0.9; ctx.beginPath(); ctx.moveTo(X, ay - d * 4 * hr); ctx.lineTo(X - 4.5 * hr, ay + d * 3 * hr); ctx.lineTo(X + 4.5 * hr, ay + d * 3 * hr); ctx.closePath(); ctx.fill();
+            ctx.beginPath(); ctx.arc(X, Y, R, 0, 7);
+          }
+          ctx.fillStyle = 'rgba(8,11,17,.8)'; ctx.globalAlpha = 1; ctx.fill();          // 深色底,字才讀得到
+          ctx.fillStyle = col; ctx.globalAlpha = 0.24; ctx.fill(); ctx.globalAlpha = 0.95; ctx.stroke();
+          ctx.fillStyle = '#f4f7fb'; ctx.globalAlpha = 1;
+          ctx.font = `700 ${Math.round(Math.max(9, r * 1.05)) * hr}px -apple-system,"PingFang TC","Noto Sans TC",sans-serif`;
+          ctx.fillText(FE[e.k].glyph, X, Y + 0.5 * hr);
+        }
+        ctx.restore();
+        feHits.push({ x, y, r: Math.max(r, 9), e });
       }
     });
   }
 }
-const flowMarkPrim = new FlowMarkPrim(); candle.attachPrimitive(flowMarkPrim); window.__flm = flowMarkPrim;
-async function loadFlowMarks() {
-  try {
-    const r = await api('flowmark', {});
-    flowMarks = (r && r.events) || [];
-  } catch (e) { flowMarks = []; }
-  flowMarkPrim.redraw();
+const flowEvPrim = new FlowEvPrim(); candle.attachPrimitive(flowEvPrim); window.__flm = flowEvPrim; window.__feHits = () => feHits; window.__feN = () => flowEvents.length;
+function feText(e) {
+  const x = e.x || {}, buy = e.s === 'buy', f1 = (v) => (v == null ? '—' : (+v).toFixed(1));
+  if (e.k === 'sweep') return `${buy ? '買方' : '賣方'}主動單連續吃穿 ${x.lv != null ? x.lv : '多'} 個價位,共 ${e.v} 口,從 ${f1(x.p0)} 推到 ${f1(e.p)}。常見於急迫的追價或停損被掃出。`;
+  if (e.k === 'absorb') return `短時間內${buy ? '賣' : '買'}方主動成交 ${e.v} 口${x.base ? `(約為平常的 ${(e.v / x.base).toFixed(1)} 倍)` : ''},價格往攻擊方向只走了 ${f1(x.moved)} 點 → 疑似${buy ? '買' : '賣'}方在 ${f1(e.p)} 附近承接。`;
+  if (e.k === 'iceberg') return `${f1(e.p)} 這一檔的${buy ? '買' : '賣'}盤被打掉 ${e.v} 口(${x.n != null ? x.n : '多'} 筆),看得見的掛量最多只有 ${f1(x.vis)} 口,價位還守著 → 疑似有隱藏的大單在補單。`;
+  return `${buy ? '買' : '賣'}方一波推了 ${f1(x.rise != null ? x.rise : x.fall)} 點、淨主動 ${e.v} 口,最近 15 秒主動量只剩 ${f1(x.tail)} 口、也沒再創${buy ? '高' : '低'} → 這波力道疑似用完。`;
 }
-
+function feTipHtml(e) {
+  const bull = feBull(e), who = e.k === 'absorb' || e.k === 'iceberg' ? (e.s === 'buy' ? '買方承接' : '賣方承接') : (e.s === 'buy' ? '買方主動' : '賣方主動');
+  return `<div class="feH"><b style="color:${bull ? '#2bc08b' : '#ff5c6c'}">${FE[e.k].name}</b><span>${who} · ${bull ? '偏多含意' : '偏空含意'}</span></div>`
+    + `<div class="feT">${fmtTime(e.t)}</div><div class="feB">${feText(e)}</div>`
+    + '<div class="feF">程式用成交與掛單簿推測的線索,規則還沒用真資料驗證,不保證反轉。</div>';
+}
+(function setupFeUi() {
+  const wrap = $('#chart').parentElement; wrap.style.position = wrap.style.position || 'relative';
+  const tip = document.createElement('div'); tip.className = 'feTip'; tip.hidden = true; document.body.appendChild(tip);
+  const lg = document.createElement('div'); lg.className = 'feLegend'; lg.id = 'feLegend'; lg.hidden = true;
+  lg.innerHTML = '<span class="feG"><i>吸</i>吸收</span><span class="feG"><i class="dm">冰</i>冰山</span><span class="feG"><i class="ci">竭</i>力竭</span><span class="feG"><i class="sw">掃</i>掃單</span><em>綠=偏多含意 紅=偏空含意</em>';
+  wrap.appendChild(lg);
+  window.__feTip = tip;
+  chart.subscribeCrosshairMove((p) => {
+    let hit = null;
+    if (p.point && S.flmark) for (const h of feHits) if (Math.hypot(h.x - p.point.x, h.y - p.point.y) <= h.r + 3) { hit = h; break; }
+    $('#chart').style.cursor = hit ? 'help' : '';
+    if (!hit) { tip.hidden = true; return; }
+    tip.innerHTML = feTipHtml(hit.e); tip.hidden = false;
+    const rc = $('#chart').getBoundingClientRect(), tw = Math.min(320, window.innerWidth - 24);
+    tip.style.width = tw + 'px';
+    let left = rc.left + hit.x + 16; if (left + tw > window.innerWidth - 8) left = rc.left + hit.x - tw - 16;
+    tip.style.left = Math.max(8, left) + 'px'; tip.style.top = Math.max(8, Math.min(window.innerHeight - tip.offsetHeight - 8, rc.top + hit.y - 20)) + 'px';
+  });
+})();
+function updateFeLegend() { const lg = $('#feLegend'); if (lg) lg.hidden = !(S.flmark && flowEvents.length); }
+async function loadFlowEvents() {
+  if (!D.bars.length) { flowEvents = []; flowEvPrim.redraw(); updateFeLegend(); return; }
+  try {
+    const lo = D.bars[0].time, hi = D.bars[D.bars.length - 1].time + 120;
+    const r = await api('flowevents', { from: lo, to: hi });
+    flowEvents = (r && r.events) || [];
+  } catch (e) { flowEvents = []; }
+  flowEvPrim.redraw(); updateFeLegend();
+}
 const fmtTime = (t) => `台北 ${hmIn(t, 'Asia/Taipei')} · 紐約 ${hmIn(t, 'America/New_York')} · ${md(t)}`;
 function evTitle(e) {
   if (e.type === 'surge') return `${e.src} ${f0.format(e.strike)} ${e.cp === 'C' ? 'Call' : 'Put'} · ${e.dte === 0 ? '0DTE' : e.dte + ' 天後到期'}`;

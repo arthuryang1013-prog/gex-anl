@@ -17,6 +17,7 @@ import json
 import os
 import signal
 import sys
+import collections
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -24,6 +25,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "orderflow.json")
 HIST = os.path.join(HERE, "orderflow_history.jsonl")
+EVENTS = os.path.join(HERE, "orderflow_events.jsonl")     # 吸收/冰山/力竭/掃單事件(已加進 .gitignore)
+EVENTS_KEEP_SECS = 2 * 86400
 CONFIG_PATH = os.path.join(HERE, "config.json")
 ARCHIVE_DIR = os.path.join(HERE, "orderflow_archive")   # 每日完整存檔(已加進 .gitignore)
 PORT = 8899
@@ -42,6 +45,57 @@ HIST_KEEP = {"ts", "received_at", "idle_sec", "lag_sec", "delta", "delta_buy",
 
 _hist_lock = threading.Lock()
 _state = {"last_prune": 0.0}
+
+
+_ev_lock = threading.Lock()
+_ev_seen = collections.OrderedDict()      # 已寫入的事件 id(bridge 每包都會重送最近 150 秒的事件,靠這個去重)
+_ev_state = {"last_prune": 0.0}
+
+
+def _store_events(evs):
+    """把封包裡新的事件追加到事件檔;事件檔只留 2 天。壞資料一律略過,不影響主流程。"""
+    if not isinstance(evs, list) or not evs:
+        return
+    try:
+        new = []
+        with _ev_lock:
+            for e in evs:
+                if not isinstance(e, dict):
+                    continue
+                eid = str(e.get("id") or "")
+                if not eid or eid in _ev_seen:
+                    continue
+                if not isinstance(e.get("t"), (int, float)) or not isinstance(e.get("p"), (int, float)) or e.get("k") not in ("sweep", "absorb", "iceberg", "exhaust"):
+                    continue
+                _ev_seen[eid] = 1
+                new.append({k: e[k] for k in ("id", "t", "k", "s", "p", "v", "x") if k in e})
+            while len(_ev_seen) > 5000:
+                _ev_seen.popitem(last=False)
+            if new:
+                with open(EVENTS, "a", encoding="utf-8") as f:
+                    for e in new:
+                        f.write(json.dumps(e, ensure_ascii=False) + "\n")
+            now = time.time()
+            if new and now - _ev_state["last_prune"] >= 600:
+                _ev_state["last_prune"] = now
+                try:
+                    with open(EVENTS, "r", encoding="utf-8") as f:
+                        lines = f.readlines()
+                    keep = []
+                    for ln in lines:
+                        try:
+                            if json.loads(ln).get("t", 0) >= now - EVENTS_KEEP_SECS:
+                                keep.append(ln)
+                        except Exception:
+                            continue
+                    if len(keep) != len(lines):
+                        with open(EVENTS + ".tmp", "w", encoding="utf-8") as f:
+                            f.writelines(keep)
+                        os.replace(EVENTS + ".tmp", EVENTS)
+                except Exception:
+                    pass
+    except Exception:
+        pass
 
 
 def _append_history(rec):
@@ -212,6 +266,7 @@ class H(BaseHTTPRequestHandler):
         except Exception as e:
             return self._send(500, {"ok": False, "error": str(e)})
         _append_history({k: data[k] for k in HIST_KEEP if k in data})
+        _store_events(data.get("events"))
         _archive_add(data)
         self._send(200, {"ok": True, "ts": data.get("ts")})
 

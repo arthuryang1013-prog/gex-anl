@@ -4,6 +4,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ui_fixture as F
 from playwright.sync_api import sync_playwright
 out = sys.argv[1] if len(sys.argv) > 1 else tempfile.mkdtemp(); os.makedirs(out, exist_ok=True)
+F.SEED_AI = True
 d = tempfile.mkdtemp(); port = 8792
 F.serve(d, port, "live")
 errs = []
@@ -15,6 +16,7 @@ with sync_playwright() as p:
     n = pg.evaluate("__mm.items.length")
     print("markers:", n)
     assert n > 0, "no markers"
+    kinds = pg.evaluate("__mm.items.map(m => m.x.kind)"); print("kinds:", kinds); assert set(kinds) == {"ai"}, kinds   # 規則版(thesis)不標
     # 以程式模擬點擊第一個標記所在的 K 棒
     pg.evaluate("""()=>{const m=__mm.items[0];const x=__mm.chart.timeScale().timeToCoordinate(m.time);
       const r=document.querySelector('#chart, .chartWrap, body').getBoundingClientRect();window.__x=x;}""")
