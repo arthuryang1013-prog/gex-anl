@@ -2012,7 +2012,7 @@ _THESIS_KEYS = ("ts", "t", "spot", "direction", "score", "confidence", "strength
 def _thesis_migrate(c):
     """舊表補上新欄位(方向分數、環境分數)。舊紀錄這兩欄為 NULL。"""
     cols = {r[1] for r in c.execute("PRAGMA table_info(thesis)")}
-    for name, typ in (("score_dir", "INTEGER"), ("regime_s", "REAL"), ("score_struct", "REAL")):
+    for name, typ in (("score_dir", "INTEGER"), ("regime_s", "REAL"), ("score_struct", "REAL"), ("sig_json", "TEXT")):
         if name not in cols:
             c.execute(f"ALTER TABLE thesis ADD COLUMN {name} {typ}")
 
@@ -2089,7 +2089,7 @@ def _stable_view(t, score_struct):
 
 
 def _thesis_save(ts, t, spot, direction, score, confidence, strength, short, flip, call_wall, put_wall, band_up, band_dn,
-                 score_dir=None, regime_s=None, score_struct=None):
+                 score_dir=None, regime_s=None, score_struct=None, sig_json=None):
     with _cache_lock:
         c = _cache_con()
         try:
@@ -2098,10 +2098,22 @@ def _thesis_save(ts, t, spot, direction, score, confidence, strength, short, fli
                       "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                       (ts, t, spot, direction, score, confidence, strength, short["direction"], short["score"],
                        flip, call_wall, put_wall, band_up, band_dn, time.time()))
-            c.execute("UPDATE thesis SET score_dir=?, regime_s=?, score_struct=? WHERE ts=?", (score_dir, regime_s, score_struct, ts))
+            c.execute("UPDATE thesis SET score_dir=?, regime_s=?, score_struct=?, sig_json=? WHERE ts=?", (score_dir, regime_s, score_struct, sig_json, ts))
             c.commit()
         finally:
             c.close()
+
+
+def _sig_json(per, flow, gex, grand):
+    """把當下每個訊號的 s(-1~+1)存成 JSON,供 signal_outcome.py 事後驗證「哪個訊號有預測力」。
+    格式:{"NQ": {id: s}, "QQQ": {...}, "NDX": {...}, "flow": {名稱: s}, "agg": {"gex":..,"flow":..,"grand":..}}"""
+    try:
+        d = dict((k, dict((x["id"], round(float(x["s"]), 3)) for x in per[k]["signals"] if x.get("id"))) for k in per)
+        d["flow"] = dict((x["name"], round(float(x["s"]), 3)) for x in (flow.get("signals") or []))
+        d["agg"] = dict(gex=round(float(gex), 3), flow=round(float(flow.get("raw") or 0.0), 3), grand=round(float(grand), 3))
+        return json.dumps(d, ensure_ascii=False)
+    except Exception:
+        return None
 
 
 def api_thesis(con, q):
@@ -2219,7 +2231,7 @@ def api_thesis(con, q):
         return None if x is None else round(float(x), n)
 
     _thesis_save(latest, t, spot, direction, score, confidence, strength, short, flip, call_wall, put_wall, band_up, band_dn,
-                 score_dir=score_dir, regime_s=regime_s, score_struct=score_struct)
+                 score_dir=score_dir, regime_s=regime_s, score_struct=score_struct, sig_json=_sig_json(per, flow, gex, grand))
     stable = _stable_view(t, score_struct)
     # 評論存檔(永久保留,供每日總結);失敗不影響網頁
     try:
