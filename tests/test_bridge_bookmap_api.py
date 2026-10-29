@@ -61,6 +61,22 @@ b.handle_trades("A", "NQ", "abc", "x", False, True, True, True, None, None)
 b.handle_mbo("A", "NQ", None, None, None, None); b.handle_depth("A", "NQ", True, "x", None)
 b.handle_setting_change("A", "NQ", None, None, None); b.handle_bcast("A", None, object()); b.handle_bcast_status("A", None)
 
+
+# 掛很久的單,在大量其他委託進出之後被打,仍要對得上(上一版 ord_stat 上限 6 萬、直接丟最舊,會漏掉)
+b.D.update(pass_match=0, pass_miss=0, pass_live_untracked=0)
+b.handle_mbo("A", "NQ", "BID_NEW", "LONG", 80, 20)
+for i in range(70000):
+    b.handle_mbo("A", "NQ", "BID_NEW", f"Q{i}", 70, 1); b.handle_mbo("A", "NQ", "CANCEL", f"Q{i}", 70, 0)
+assert len(b.ord_stat) < 100 and "LONG" in b.ord_stat, (len(b.ord_stat), "沒成交的撤單統計要丟掉,不然無限成長")
+b.handle_trades("A", "NQ", 80, 3, False, False, True, True, "AGG1", "LONG")
+assert b.D["pass_match"] == 1 and b.D["pass_miss"] == 0, b.D
+b.handle_trades("A", "NQ", 80, 3, False, False, True, True, "AGG2", "NEVERSEEN")
+assert b.D["pass_miss"] == 1 and b.D["samples"]["miss"] == ["NEVERSEEN"]
+# 被吃過的委託撤單後還留著(冰山偵測要用),過 300 秒且不在簿上就清掉
+b.handle_mbo("A", "NQ", "CANCEL", "LONG", 80, 0); assert "LONG" in b.ord_stat
+T[0] += 400; b._last_prune[0] = 0.0; b._prune_ord_stat(T[0]); assert "LONG" not in b.ord_stat
+d = b._diag_payload(); assert "ord_live" in d and "ord_stat" in d
+
 # 廣播:自動訂閱所有 provider/generator,記錄原始內容
 calls.clear()
 b.handle_bcast_status("ADDON", {"Stops&Icebergs": ["stops", "icebergs"], "Other": [{"name": "g1"}]})

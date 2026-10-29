@@ -120,8 +120,8 @@ trade_log = deque()        # 近 60 秒的成交紀錄:(時間, 買/賣, 價, �
 #  5. 廣播:自動訂閱其他 addon(例如 Bookmap 內建的 Stops & Icebergs)廣播的所有 generator,原始內容記進封包 bcast;
 #     格式未知,先只記錄,之後看真資料再決定怎麼接
 #  6. 商品資訊:instrument_multiplier、supported_features(資料是不是 MBO、是否延遲、來源交易所)
-D = {"trades": 0, "exec_start": 0, "aggr_id": 0, "pass_id": 0, "pass_match": 0, "otc": 0,
-"mbo": 0, "mbo_types": {}, "depth": 0, "err": 0, "samples": {"aggr": [], "pass": [], "mbo": []}}
+D = {"trades": 0, "exec_start": 0, "aggr_id": 0, "pass_id": 0, "pass_match": 0, "pass_miss": 0, "pass_live_untracked": 0, "otc": 0,
+"mbo": 0, "mbo_types": {}, "depth": 0, "err": 0, "samples": {"aggr": [], "pass": [], "mbo": [], "miss": []}}
 _addon = None
 _alias = None
 _info = {}                 # 商品資訊 / 資料特徵
@@ -270,6 +270,8 @@ def _diag_payload():
     d = {k: v for k, v in D.items() if k not in ("samples", "mbo_types")}
     d["mbo_types"] = dict(D["mbo_types"])
     d["samples"] = D["samples"]
+    d["ord_live"] = len(orders)
+    d["ord_stat"] = len(ord_stat)
     d["info"] = _info
     d["bc"] = {"status": _bc["status"], "counts": dict(_bc["counts"]), "subs": len(_bc["subs"])}
     if _bc["dirty"]:
@@ -356,6 +358,10 @@ def _handle_mbo_inner(addon, alias, event_type, order_id, price_level, size_leve
             size_cts = float(size_level)
         if event_type == "CANCEL":
             o = orders.pop(order_id, None)
+            try:
+                _note_cancel(order_id)
+            except Exception:
+                pass
             if o is not None:
                 # 注意:被成交吃掉的委託也可能以 CANCEL 出現,無法與主動撤單區分(見 README/說明)
                 _track("pull", o[0], o[1], o[2])
@@ -561,15 +567,47 @@ def _on_trade_event(now, side, price_level, price_real, sz, is_bid_aggr, start=F
             _ice_cand.add(pid)
 
 
+ORD_STAT_CAP = 300000
+
+
+def _evict_ord_stat():
+    """超過上限:先丟掉已經不在簿上的,還是太多再丟最舊的 20%。(上一版直接丟最舊的,會把掛很久、之後才被打的大單丟掉。)"""
+    for k in [k for k in ord_stat if k not in orders]:
+        ord_stat.pop(k, None)
+        _ice_cand.discard(k)
+    if len(ord_stat) > ORD_STAT_CAP:
+        for k in list(ord_stat)[:len(ord_stat) // 5]:
+            ord_stat.pop(k, None)
+            _ice_cand.discard(k)
+
+
+def _note_cancel(order_id):
+    """委託被撤/被吃完:沒被成交過的統計直接丟(不然會一直長);有成交過的留著給冰山偵測,之後定期清。"""
+    pid = str(order_id)
+    st = ord_stat.get(pid)
+    if st is not None and st[5] == 0:
+        ord_stat.pop(pid, None)
+
+
+_last_prune = [0.0]
+
+
+def _prune_ord_stat(now):
+    if now - _last_prune[0] < 60:
+        return
+    _last_prune[0] = now
+    for k in [k for k, st in ord_stat.items() if st[5] > 0 and (st[7] or 0) < now - 300 and k not in orders]:
+        ord_stat.pop(k, None)
+        _ice_cand.discard(k)
+
+
 def _note_new_order(order_id, is_bid, price_level, size_cts, now):
     """handle_mbo 呼叫:新掛的被動單。記起始量;若剛在同價位成交過,算一次「補單」。"""
     if not EVENTS_ON:
         return
     pid = str(order_id)
-    if len(ord_stat) > 60000:
-        for k in list(ord_stat)[:20000]:
-            ord_stat.pop(k, None)
-            _ice_cand.discard(k)
+    if len(ord_stat) > ORD_STAT_CAP:
+        _evict_ord_stat()
     ord_stat[pid] = [is_bid, price_level, size_cts, size_cts, 0.0, 0, None, None, 0]
     k = (is_bid, price_level)
     lt = lvl_last_tr.get(k)
@@ -751,6 +789,10 @@ def _detect_events(now):
             _cluster_end()
     except Exception:
         pass
+    try:
+        _prune_ord_stat(now)
+    except Exception:
+        pass
     for fn in (_detect_iceberg, _detect_absorb, _detect_exhaust):
         try:
             fn(now)
@@ -798,6 +840,12 @@ is_execution_end, aggressor_order_id=None, passive_order_id=None):
                 D["pass_id"] += 1
                 if pid in ord_stat:
                     D["pass_match"] += 1
+                elif pid in orders:
+                    D["pass_live_untracked"] += 1
+                else:
+                    D["pass_miss"] += 1
+                    if len(D["samples"]["miss"]) < 4:
+                        D["samples"]["miss"].append(pid)
             try:
                 sz = float(size_level) / _size_mult
             except Exception:
