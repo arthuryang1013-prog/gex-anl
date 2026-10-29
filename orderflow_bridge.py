@@ -146,7 +146,24 @@ _SETTINGS = [
 ("OF exh_push_vol", "EXH_PUSH_VOL", 80, 20, 500, 10),
 ("OF exh_rise_pts", "EXH_RISE_PTS", 4.0, 1.0, 20.0, 0.5),
 ]
-_BOOL_SETTINGS = [("OF events_on", "EVENTS_ON", True), ("OF msg_on", "MSG_ON", True)]
+# 事件種類開關(關掉 = 該種事件不偵測不送)、副圖指標開關(關掉 = 不再往那條線送點)
+EV_SWEEP = EV_STOP = EV_ICEBERG = EV_ABSORB = EV_EXHAUST = True
+IND_CVD_TR = IND_DELTA = IND_CVD_MBO = IND_IMB = IND_BIG = True
+# (指標名, 封包欄位, 顏色, 開關變數)
+_IND_DEFS = [
+("OF CVD(trades)", "cvd_tr", (0, 200, 255), "IND_CVD_TR"),
+("OF Delta 60s", "delta_tr", (255, 170, 0), "IND_DELTA"),
+("OF CVD(MBO)", "cvd_mbo", (160, 120, 255), "IND_CVD_MBO"),
+("OF Imbalance", "imb", (255, 90, 120), "IND_IMB"),
+("OF Big delta 60s", "big", (80, 220, 120), "IND_BIG"),
+]
+_BOOL_SETTINGS = [
+("OF events_on", "EVENTS_ON", True), ("OF msg_on", "MSG_ON", True),
+("OF ev_sweep", "EV_SWEEP", True), ("OF ev_stop", "EV_STOP", True), ("OF ev_iceberg", "EV_ICEBERG", True),
+("OF ev_absorb", "EV_ABSORB", True), ("OF ev_exhaust", "EV_EXHAUST", True),
+("OF ind_cvd_trades", "IND_CVD_TR", True), ("OF ind_delta_60s", "IND_DELTA", True), ("OF ind_cvd_mbo", "IND_CVD_MBO", True),
+("OF ind_imbalance", "IND_IMB", True), ("OF ind_big_delta", "IND_BIG", True),
+]
 
 
 def _setup_addon(addon, alias, full_name, instrument_multiplier, supported_features):
@@ -163,9 +180,14 @@ def _setup_addon(addon, alias, full_name, instrument_multiplier, supported_featu
     for (nm, var, dv) in _BOOL_SETTINGS:
         bm.add_boolean_settings_parameter(addon, alias, nm, bool(globals().get(var, dv)), reload_if_change=False)
     # 副圖指標(畫的是 bridge 自己算的值,跟 Bookmap 原生 CVD 對照用)
-    for rid, (nm, col) in enumerate((("OF CVD(trades)", (0, 200, 255)), ("OF Delta 60s", (255, 170, 0))), start=101):
+    for rid, (nm, _key, col, _flag) in enumerate(_IND_DEFS, start=101):
         _ind_req[rid] = nm
-        bm.register_indicator(addon, alias, rid, nm, "BOTTOM", color=col)
+        try:
+            # is_modifiable=True:在 Bookmap 自己的指標面板也能改顏色/線型、顯示或隱藏(參數名稱來自套件原始碼)
+            bm.register_indicator(addon, alias, rid, nm, "BOTTOM", color=col, show_line_by_default=True,
+            show_widget_by_default=True, is_modifiable=True)
+        except TypeError:
+            bm.register_indicator(addon, alias, rid, nm, "BOTTOM", color=col)      # 舊版套件沒有這幾個參數
     try:
         bm.send_user_message(addon, alias, f"[OF] 已啟動 mbo={_info.get('mbo')} depth={_info.get('depth')} "
         f"delayed={_info.get('delayed')} exch={_info.get('exch')} mult={_info.get('mult')}")
@@ -196,16 +218,17 @@ def handle_indicator_response(addon, request_id, indicator_id):
         D["err"] += 1
 
 
-def _push_indicators(cvd_tr, delta60):
+def _push_indicators(pkt):
     if not _addon:
         return
-    try:
-        for nm, v in (("OF CVD(trades)", cvd_tr), ("OF Delta 60s", delta60)):
+    for nm, key, _col, flag in _IND_DEFS:
+        try:
             iid = _ind.get(nm)
-            if iid is not None:
+            v = pkt.get(key)
+            if iid is not None and v is not None and globals().get(flag, True):
                 bm.add_point(_addon, _alias, iid, float(v))
-    except Exception:
-        D["err"] += 1
+        except Exception:
+            D["err"] += 1
 
 
 _last_msg_t = [0.0]
@@ -429,7 +452,9 @@ def _remember(order_id, is_bid, price_level, size_cts):
 
 
 def _emit(kind, side, price, vol, x=None, key=None, now=None):
-    """記錄一個事件;同類事件有冷卻時間,避免連發。"""
+    """記錄一個事件;同類事件有冷卻時間,避免連發。該種事件被設定面板關掉就不記。"""
+    if not globals().get("EV_" + kind.upper(), True):
+        return False
     now = now or time.time()
     ck = (kind, key if key is not None else side)
     if now - _last_evt.get(ck, 0.0) < EVT_COOLDOWN.get(kind, 30.0):
@@ -1036,7 +1061,7 @@ def _tick():
     "mult": _info.get("mult"),
     "diag": _diag_payload(),
     }
-    _push_indicators(pkt["cvd_tr"], pkt["delta_tr"])
+    _push_indicators(pkt)
     _post(pkt)
 
 

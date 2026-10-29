@@ -22,16 +22,35 @@ b.time = types.SimpleNamespace(time=lambda: T[0], sleep=lambda x: None)
 b.handle_subscribe_instrument("ADDON", "NQ", "NQZ6", False, 0.25, 1.0, 20.0,
                               {"mbo": True, "depth": True, "isDelayed": False, "exchangeUsedForSubscription": "CME"})
 names = [c[0] for c in calls]
-assert names.count("add_number_settings_parameter") == len(b._SETTINGS) and names.count("add_boolean_settings_parameter") == 2
+assert names.count("add_number_settings_parameter") == len(b._SETTINGS) and names.count("add_boolean_settings_parameter") == len(b._BOOL_SETTINGS)
 assert all(c[2].get("reload_if_change") is False for c in calls if c[0].startswith("add_") and "settings" in c[0]), "改設定不該重啟 addon"
-assert [c for c in calls if c[0] == "register_indicator"] and b._info["mult"] == 20.0 and b._info["exch"] == "CME"
+assert len([c for c in calls if c[0] == "register_indicator"]) == len(b._IND_DEFS) == 5 and b._info["mult"] == 20.0 and b._info["exch"] == "CME"
 assert any(c[0] == "send_user_message" for c in calls)
 b._pips = 1.0; b._size_mult = 1.0
 
-# 指標回應 → 之後每秒 add_point
-b.handle_indicator_response("ADDON", 101, 7); b.handle_indicator_response("ADDON", 102, 8)
+# 指標回應 → 之後每秒 add_point(5 條線)
+for i in range(5): b.handle_indicator_response("ADDON", 101 + i, 7 + i)
 calls.clear(); b._tick()
-assert [c for c in calls if c[0] == "add_point" and c[1][1] == 7], calls
+assert sorted(c[1][1] for c in calls if c[0] == "add_point") == [7, 8, 9, 10, 11], calls
+# 指標開關:關掉的那條不再送點,其他照送;再打開恢復
+b.handle_setting_change("ADDON", "NQ", "OF ind_cvd_mbo", "BOOLEAN", False)
+calls.clear(); b._tick()
+assert sorted(c[1][1] for c in calls if c[0] == "add_point") == [7, 8, 10, 11], calls
+b.handle_setting_change("ADDON", "NQ", "OF ind_cvd_mbo", "BOOLEAN", True)
+# 事件種類開關:關掉的種類不記錄、不通知
+b.events.clear(); b._last_evt.clear(); b._last_msg_t[0] = 0.0
+b.handle_setting_change("ADDON", "NQ", "OF ev_iceberg", "BOOLEAN", False)
+assert b._emit("iceberg", "buy", 100.0, 50, now=T[0]) is False and not b.events
+assert b._emit("sweep", "buy", 100.0, 50, now=T[0]) is True
+b.handle_setting_change("ADDON", "NQ", "OF ev_iceberg", "BOOLEAN", True)
+assert b._emit("iceberg", "buy", 100.0, 50, now=T[0]) is True
+b.events.clear(); b._last_evt.clear()
+# 舊版套件的 register_indicator 沒有新參數時退回舊寫法,不丟例外
+_orig = fake.register_indicator
+def _old_api(addon, alias, rid, nm, gt, color=(0, 255, 0), line_style="SOLID", initial_value=0.0): calls.append(("register_indicator_old", (alias, rid), {}))
+fake.register_indicator = _old_api; calls.clear()
+b._setup_addon("ADDON", "NQ", "NQZ6", 20.0, {"mbo": True, "depth": True, "isDelayed": False, "exchangeUsedForSubscription": "CME"}); assert len([c for c in calls if c[0] == "register_indicator_old"]) == 5
+fake.register_indicator = _orig
 
 # 設定改變:數字(含整數型別)、布林
 b.handle_setting_change("ADDON", "NQ", "OF stop_min_aggr", "NUMBER", 5.0); assert b.STOP_MIN_AGGR == 5 and isinstance(b.STOP_MIN_AGGR, int)
