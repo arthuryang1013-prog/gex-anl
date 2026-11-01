@@ -20,10 +20,10 @@ const DEF = { hours: 8, day: null, tz: 'Asia/Taipei', srcs: ['NQ', 'QQQ', 'NDX']
   pal: { name: '預設', low: '#3752cd', mid: '#1c96c3', high: '#ffbc48', pos: '#2bc08b', neg: '#ff5c6c' },
   gridH: false, gridV: false, cross: 'normal', pmode: 0, auto: true, pline: true, llabels: true, stay: false, lw: 3, roff: 8, nosb: false,
   subMode: 'net', sqrib: false, emband: true, anly: 'pcr', anlyPcrBasis: 'vol', anlySkewSrc: 'NQ', anlyDivBasis: 'oi', anlyDivScope: 'all',
-  flmark: true, feKinds: { sweep: true, stop: true, absorb: true, iceberg: true, exhaust: true }, sets: false, mmini: true, lineCol: { NQ: '#7d9bd9', QQQ: '#39d98a', NDX: '#e7a44c', WGT: '#ff7ad9' } };
+  flmark: true, feKinds: { sweep: true, stop: true, absorb: true, iceberg: true, exhaust: true }, feTop: { iceberg: 25, sweep: 100 }, feMerge: true, sets: false, mmini: true, lineCol: { NQ: '#7d9bd9', QQQ: '#39d98a', NDX: '#e7a44c', WGT: '#ff7ad9' } };
 const S = { ...DEF };
 try { if (/[?&]reset\b/.test(location.search)) localStorage.removeItem('gexweb.v1'); } catch (e) { /* ignore */ }
-try { const o = JSON.parse(localStorage.getItem('gexweb.v1') || '{}'); Object.assign(S, o); S.pal = { ...DEF.pal, ...(o.pal || {}) }; S.evTypes = { ...DEF.evTypes, ...(o.evTypes || {}) }; S.feKinds = { ...DEF.feKinds, ...(o.feKinds || {}) }; S.wgt = { ...DEF.wgt, ...(o.wgt || {}) }; S.lineCol = { ...DEF.lineCol, ...(o.lineCol || {}) }; if ((o.wver || 0) < 2) { S.wgt = { ...DEF.wgt }; S.wver = 2; } if (S.subMode !== 'net' && S.subMode !== 'sq') S.subMode = 'net'; if (!['pcr', 'skew', 'div'].includes(S.anly)) S.anly = 'pcr'; if (!['vol', 'oi'].includes(S.anlyPcrBasis)) S.anlyPcrBasis = 'vol'; if (!['NQ', 'QQQ', 'NDX'].includes(S.anlySkewSrc)) S.anlySkewSrc = 'NQ'; if (!['oi', 'vol'].includes(S.anlyDivBasis)) S.anlyDivBasis = 'oi'; if (!['all', 'ex0', 'zero'].includes(S.anlyDivScope)) S.anlyDivScope = 'all'; } catch (e) { /* storage may be blocked */ }
+try { const o = JSON.parse(localStorage.getItem('gexweb.v1') || '{}'); Object.assign(S, o); S.pal = { ...DEF.pal, ...(o.pal || {}) }; S.evTypes = { ...DEF.evTypes, ...(o.evTypes || {}) }; S.feKinds = { ...DEF.feKinds, ...(o.feKinds || {}) }; S.feTop = { ...DEF.feTop, ...(o.feTop || {}) }; for (const k of Object.keys(S.feTop)) if (![10, 25, 50, 100].includes(+S.feTop[k])) S.feTop[k] = 100; S.feMerge = o.feMerge !== false; S.wgt = { ...DEF.wgt, ...(o.wgt || {}) }; S.lineCol = { ...DEF.lineCol, ...(o.lineCol || {}) }; if ((o.wver || 0) < 2) { S.wgt = { ...DEF.wgt }; S.wver = 2; } if (S.subMode !== 'net' && S.subMode !== 'sq') S.subMode = 'net'; if (!['pcr', 'skew', 'div'].includes(S.anly)) S.anly = 'pcr'; if (!['vol', 'oi'].includes(S.anlyPcrBasis)) S.anlyPcrBasis = 'vol'; if (!['NQ', 'QQQ', 'NDX'].includes(S.anlySkewSrc)) S.anlySkewSrc = 'NQ'; if (!['oi', 'vol'].includes(S.anlyDivBasis)) S.anlyDivBasis = 'oi'; if (!['all', 'ex0', 'zero'].includes(S.anlyDivScope)) S.anlyDivScope = 'all'; } catch (e) { /* storage may be blocked */ }
 const save = () => { try { localStorage.setItem('gexweb.v1', JSON.stringify(S)); } catch (e) { /* ignore */ } };
 
 /* ------------------------------ state ------------------------------ */
@@ -2148,6 +2148,38 @@ let flowEvents = [], feHits = [];
 const FE = { sweep: { name: '掃單', glyph: '掃' }, stop: { name: '停損(推測)', glyph: '停' }, absorb: { name: '吸收', glyph: '吸' }, iceberg: { name: '冰山', glyph: '冰' }, exhaust: { name: '力竭', glyph: '竭' } };
 const feBull = (e) => (e.k === 'exhaust' ? e.s === 'sell' : e.s === 'buy');
 const feR = (e) => 6.5 + Math.min(4.5, Math.log10(Math.max(10, e.v) / 10) * 3.2);
+/* 顯示用的事件清單:(1) 圖例關掉的種類不畫 (2) 冰山/掃單可只留「該種類口數最大的前 N%」(門檻隨當天資料自動調) (3) 冰山可把「同方向、價位差 ≤1 點、5 分鐘內」的合併成一顆 ×n
+   只影響畫面,bridge 與存檔都不動。 */
+let flowShown = [], feSig = '';
+function feMergeIce(arr) {
+  const out = [], open = [];
+  for (const e of arr.slice().sort((a, b) => a.t - b.t)) {
+    let c = null;
+    for (let i = open.length - 1; i >= 0; i--) {
+      const o = open[i];
+      if (e.t - o.t1 > 300) { open.splice(i, 1); continue; }
+      if (o.s === e.s && Math.abs(o.p - e.p) <= 1.0) { c = o; break; }
+    }
+    if (!c) { c = { ...e, cl: 1, t1: e.t, x: { ...(e.x || {}) } }; open.push(c); out.push(c); continue; }
+    c.cl++; c.v += e.v; c.t1 = e.t; if (e.v > (c.vmax || 0)) { c.vmax = e.v; c.p = e.p; }
+    if (e.x && e.x.conf === 2) c.x.conf = 2;
+  }
+  for (const c of out) if (c.cl === 1) { delete c.cl; delete c.t1; }
+  return out;
+}
+function feEnsure() {
+  const sig = flowEvents.length + '|' + (flowEvents.length ? flowEvents[0].t + '|' + flowEvents[flowEvents.length - 1].t : '') + '|' + JSON.stringify([S.feKinds, S.feTop, S.feMerge]);
+  if (sig === feSig) return; feSig = sig;
+  const by = {}; for (const e of flowEvents) (by[e.k] = by[e.k] || []).push(e);
+  flowShown = [];
+  for (const k of Object.keys(by)) {
+    if (S.feKinds[k] === false) continue;
+    let arr = by[k]; const top = +(S.feTop && S.feTop[k]) || 100;
+    if (top < 100 && arr.length > 4) { const vs = arr.map((e) => e.v).sort((a, b) => a - b); const cut = vs[Math.floor(vs.length * (1 - top / 100))]; arr = arr.filter((e) => e.v >= cut); }
+    if (k === 'iceberg' && S.feMerge !== false) arr = feMergeIce(arr);
+    flowShown.push(...arr);
+  }
+}
 class FlowEvPrim {
   attached(p) { this.series = p.series; this.chart = p.chart; this.req = p.requestUpdate; }
   detached() {}
@@ -2162,8 +2194,8 @@ class FlowEvPrim {
       const W = sc.bitmapSize.width / hr;
       const used = new Map();
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-      for (const e of flowEvents) {
-        if (S.feKinds[e.k] === false) continue;                             // 圖例上關掉的種類不畫
+      feEnsure();
+      for (const e of flowShown) {
         const bi = lowerIdx(D.barT, e.t); if (bi < 0) continue;
         let x = ts.timeToCoordinate(D.barT[bi]), y = ser.priceToCoordinate(e.p);
         if (x == null || y == null || x < -20 || x > W + 20) continue;
@@ -2201,6 +2233,7 @@ class FlowEvPrim {
           ctx.fillStyle = '#f4f7fb'; ctx.globalAlpha = 1;
           ctx.font = `700 ${Math.round(Math.max(9, r * 1.05)) * hr}px -apple-system,"PingFang TC","Noto Sans TC",sans-serif`;
           ctx.fillText(FE[e.k].glyph, X, Y + 0.5 * hr);
+          if (e.cl > 1) { ctx.font = `700 ${9.5 * hr}px -apple-system,"PingFang TC","Noto Sans TC",sans-serif`; ctx.textAlign = 'left'; ctx.fillStyle = col; ctx.fillText('×' + e.cl, X + R + 2 * hr, Y + 0.5 * hr); ctx.textAlign = 'center'; }
         }
         ctx.restore();
         feHits.push({ x, y, r: Math.max(r, 9), e });
@@ -2208,12 +2241,13 @@ class FlowEvPrim {
     });
   }
 }
-const flowEvPrim = new FlowEvPrim(); candle.attachPrimitive(flowEvPrim); window.__flm = flowEvPrim; window.__feHits = () => feHits; window.__feN = () => flowEvents.length;
+const flowEvPrim = new FlowEvPrim(); candle.attachPrimitive(flowEvPrim); window.__flm = flowEvPrim; window.__feHits = () => feHits; window.__feN = () => flowEvents.length; window.__feShown = () => { feEnsure(); return flowShown; }; window.__feSet = (arr) => { flowEvents = arr; flowEvPrim.redraw(); updateFeLegend(); };
 function feText(e) {
   const x = e.x || {}, buy = e.s === 'buy', f1 = (v) => (v == null ? '—' : (+v).toFixed(1));
   if (e.k === 'stop') return `${buy ? '買方' : '賣方'}一波由 ${x.aggr != null ? x.aggr : '多'} 張攻擊單在極短時間內從 ${f1(x.p0)} 衝到 ${f1(e.p)}(共 ${e.v} 口),並${buy ? '突破' : '跌破'}近期${buy ? '高' : '低'}點 ${f1(x.brk)} 點 → 疑似停損單被觸發。這是依特徵推測;API 沒有停損旗標,可能只是一般的突破追價。`;
   if (e.k === 'sweep') return `${buy ? '買方' : '賣方'}主動單連續吃穿 ${x.lv != null ? x.lv : '多'} 個價位,共 ${e.v} 口,從 ${f1(x.p0)} 推到 ${f1(e.p)}。常見於急迫的追價或停損被掃出。`;
   if (e.k === 'absorb') return `短時間內${buy ? '賣' : '買'}方主動成交 ${e.v} 口${x.thr ? `(門檻 ${f1(x.thr)} 口,為近 10 分鐘平均+標準差)` : ''},價格往攻擊方向只走了 ${f1(x.moved)} 點 → 疑似${buy ? '買' : '賣'}方在 ${f1(e.p)} 附近承接${x.conf === 2 ? '(同價附近另有冰山證據)' : ''}。`;
+  if (e.k === 'iceberg' && e.cl > 1) return `${f1(e.p)} 附近(價差 ≤1 點)、${Math.max(1, Math.round((e.t1 - e.t) / 60))} 分鐘內,同方向的${buy ? '買' : '賣'}盤被判為冰山共 ${e.cl} 次,合計被打掉 ${e.v} 口。多次在同一價位附近出現,通常是同一批掛單反覆被打;點圖例「合併相近」可還原成逐筆。`;
   if (e.k === 'iceberg') return `${f1(e.p)} 這一檔的${buy ? '買' : '賣'}盤被打掉 ${e.v} 口(${x.n != null ? x.n : '多'} 筆),看得見的掛量最多只有 ${f1(x.vis)} 口,價位還守著 → ${x.conf === 2 ? (x.by === 'id' ? '同一張委託被打掉的量遠超它的顯示量(證據較強)' : '成交後同價位立刻又出現新掛單(有補單證據)') : '只有成交量證據(較弱)'}。`;
   return `${buy ? '買' : '賣'}方一波推了 ${f1(x.rise != null ? x.rise : x.fall)} 點、淨主動 ${e.v} 口,最近 15 秒主動量只剩 ${f1(x.tail)} 口、也沒再創${buy ? '高' : '低'} → 這波力道疑似用完。`;
 }
@@ -2229,10 +2263,17 @@ function feTipHtml(e) {
   const lg = document.createElement('div'); lg.className = 'feLegend'; lg.id = 'feLegend'; lg.hidden = true;
   lg.innerHTML = '<button class="feG" data-k="absorb" title="點一下顯示/隱藏吸收"><i>吸</i><span>吸收</span></button><button class="feG" data-k="iceberg" title="點一下顯示/隱藏冰山"><i class="dm">冰</i><span>冰山</span></button>'
     + '<button class="feG" data-k="exhaust" title="點一下顯示/隱藏力竭"><i class="ci">竭</i><span>力竭</span></button><button class="feG" data-k="sweep" title="點一下顯示/隱藏掃單"><i class="sw">掃</i><span>掃單</span></button>'
-    + '<button class="feG" data-k="stop" title="點一下顯示/隱藏停損(推測)"><i class="sw">停</i><span>停損(推測)</span></button><em>綠=偏多含意 紅=偏空含意 · 點圖例可個別開關</em>';
+    + '<button class="feG" data-k="stop" title="點一下顯示/隱藏停損(推測)"><i class="sw">停</i><span>停損(推測)</span></button><span class="feOpt" title="只顯示該種類口數最大的前 N%(以當天已載入的資料為基準)">冰山 <select data-top="iceberg"><option value="100">全部</option><option value="50">前50%</option><option value="25">前25%</option><option value="10">前10%</option></select></span>'
+    + '<span class="feOpt">掃單 <select data-top="sweep"><option value="100">全部</option><option value="50">前50%</option><option value="25">前25%</option><option value="10">前10%</option></select></span>'
+    + '<button class="feG feM" data-opt="merge" title="把同方向、價位差 ≤1 點、5 分鐘內的冰山合併成一顆(×n)"><span>合併相近冰山</span></button><em>綠=偏多含意 紅=偏空含意 · 點圖例可個別開關</em>';
+  lg.addEventListener('change', (ev) => {
+    const sel = ev.target.closest('select[data-top]'); if (!sel) return;
+    S.feTop[sel.dataset.top] = +sel.value; save(); flowEvPrim.redraw(); updateFeLegend();
+  });
   lg.addEventListener('click', (ev) => {
     const b = ev.target.closest('.feG'); if (!b) return;
-    const k = b.dataset.k; S.feKinds[k] = S.feKinds[k] === false; save(); flowEvPrim.redraw(); updateFeLegend();
+    if (b.dataset.opt === 'merge') { S.feMerge = !(S.feMerge !== false); save(); flowEvPrim.redraw(); updateFeLegend(); return; }
+    const k = b.dataset.k; if (!k) return; S.feKinds[k] = S.feKinds[k] === false; save(); flowEvPrim.redraw(); updateFeLegend();
   });
   wrap.appendChild(lg);
   window.__feTip = tip;
@@ -2253,7 +2294,13 @@ function updateFeLegend() {
   const lg = $('#feLegend'); if (!lg) return;
   lg.hidden = !(S.flmark && flowEvents.length);
   const cnt = {}; for (const e of flowEvents) cnt[e.k] = (cnt[e.k] || 0) + 1;
-  $$('.feG', lg).forEach((b) => { const k = b.dataset.k, off = S.feKinds[k] === false; b.classList.toggle('off', off); b.setAttribute('aria-pressed', String(!off)); $('span', b).textContent = FE_NAME[k] + (cnt[k] ? ' ' + cnt[k] : ''); });
+  feEnsure(); const shown = {}; for (const e of flowShown) shown[e.k] = (shown[e.k] || 0) + 1;
+  $$('.feG', lg).forEach((b) => {
+    if (b.dataset.opt === 'merge') { const on = S.feMerge !== false; b.classList.toggle('off', !on); b.setAttribute('aria-pressed', String(on)); return; }
+    const k = b.dataset.k, off = S.feKinds[k] === false; b.classList.toggle('off', off); b.setAttribute('aria-pressed', String(!off));
+    const n = cnt[k] || 0, m = shown[k] || 0; $('span', b).textContent = FE_NAME[k] + (n ? ' ' + (!off && m !== n ? m + '/' + n : n) : '');
+  });
+  $$('select[data-top]', lg).forEach((sel) => { sel.value = String(S.feTop[sel.dataset.top] || 100); });
 }
 async function loadFlowEvents() {
   if (!D.bars.length) { flowEvents = []; flowEvPrim.redraw(); updateFeLegend(); return; }

@@ -41,6 +41,22 @@ with sync_playwright() as p:
     assert "iceberg" not in kinds() and pg.evaluate("document.querySelector('#feLegend .feG[data-k=iceberg]').classList.contains('off')"), "重新整理後開關要保留"
     pg.click('#feLegend .feG[data-k=iceberg]'); pg.wait_for_timeout(200)
     print("圖例個別開關 OK")
+    # 冰山太多時:前 N% 篩選 + 相近合併(只影響畫面)
+    base = pg.evaluate("(() => { const h = window.__feHits()[0].e; return { t: h.t, p: h.p } })()")
+    pg.evaluate("""(b) => { const ev = []; 
+      for (let i = 0; i < 20; i++) ev.push({ k: 'iceberg', s: 'buy', t: b.t + i * 30, p: b.p + 0.25 * (i % 3), v: 30, x: { vis: 5, n: 6, conf: 2, by: 'lvl' } });
+      for (let i = 0; i < 20; i++) ev.push({ k: 'iceberg', s: 'sell', t: b.t + i * 600, p: b.p + 20 + 5 * i, v: 10 + i, x: { vis: 5, n: 6, conf: 2, by: 'lvl' } });
+      window.__feSet(ev); }""", base)
+    ice = lambda: [e for e in pg.evaluate("window.__feShown()") if e["k"] == "iceberg"]
+    pg.select_option('#feLegend select[data-top=iceberg]', '100'); pg.wait_for_timeout(200)
+    a = ice(); print("合併開、全部:", len(a)); assert len(a) == 21 and max(e.get("cl", 1) for e in a) == 20, [e.get("cl") for e in a]
+    pg.click('#feLegend .feG[data-opt=merge]'); pg.wait_for_timeout(200)
+    a = ice(); print("合併關、全部:", len(a)); assert len(a) == 40
+    pg.click('#feLegend .feG[data-opt=merge]'); pg.select_option('#feLegend select[data-top=iceberg]', '25'); pg.wait_for_timeout(200)
+    a = ice(); print("合併開、前25%:", len(a)); assert len(a) == 1 and a[0]["cl"] == 20
+    txt = pg.evaluate("document.querySelector('#feLegend .feG[data-k=iceberg] span').textContent"); print("圖例:", txt); assert "1/40" in txt
+    assert pg.evaluate("JSON.parse(localStorage.getItem('gexweb.v1')).feTop.iceberg") == 25
+    pg.select_option('#feLegend select[data-top=iceberg]', '100')
     # 關掉圖層
     pg.click('#tbToggle') if pg.query_selector('#tbToggle') and not pg.is_visible('#layers button[data-v=flmark]') else None
     pg.click('#layers button[data-v=flmark]'); pg.wait_for_timeout(500)

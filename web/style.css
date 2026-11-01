@@ -550,3 +550,4 @@ button.mkey:hover{border-color:var(--blue);color:var(--text)}
 .feLegend i.dm{transform:rotate(0);border-radius:3px;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%);border:0;background:#8b97a855}
 .feLegend i.ci{border-radius:50%}.feLegend i.sw{border:0;border-left:3px solid #8b97a8;border-radius:0;width:12px}
 .feLegend em{font-style:normal;color:var(--dim)}
+.feLegend .feOpt{pointer-events:auto;display:inline-flex;align-items:center;gap:4px}.feLegend select{background:#141b27;color:var(--muted);border:1px solid #2a3547;border-radius:5px;font:inherit;padding:1px 3px}.feLegend .feM{margin-left:2px}
