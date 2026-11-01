@@ -1014,13 +1014,19 @@ def api_flowmom(con, q):
         if old is None or (m.get("n") or 0) >= (old.get("n") or 0):
             merged[m["t"]] = m
     mrows = [merged[t] for t in sorted(merged)]
-    times, rows, cum = [], [], 0.0
+    # 優先用 delta_tr(實際成交算的買賣差);沒有(舊版 bridge)才退回 delta(MBO 掛單事件推判)。
+    # 2026-11-01 實測 10/28–10/30:MBO 推判的量只有實際成交量的 1.5–2.3%,方向跟成交一致只有約 50%(等於丟銅板),所以不再當主要來源。
+    # rows 的第 3、4 欄(buy/sell)仍是 MBO 版,前端沒用;src 逐分鐘標明這分鐘用的是哪個欄位('tr' / 'mbo')。
+    times, rows, cum, src = [], [], 0.0, []
     for m in mrows:
-        d = fnum(m.get("delta"))
+        tr = m.get("delta_tr")
+        use_tr = tr is not None
+        d = fnum(tr) if use_tr else fnum(m.get("delta"))
         cum += d
         rows.append([round(cum, 1), round(d, 1), round(fnum(m.get("delta_buy")), 1), round(fnum(m.get("delta_sell")), 1)])
         times.append(m["t"])
-    return dict(step=step, times=times, rows=rows)
+        src.append("tr" if use_tr else "mbo")
+    return dict(step=step, times=times, rows=rows, src=src)
 
 
 # ----------------------------- 0DTE gamma share -----------------------------

@@ -64,5 +64,12 @@ G.ORDERFLOW_MINUTES_DIR = mn_dir
 G.ORDERFLOW_HISTORY_PATH = os.path.join(d, "no_such_history.jsonl")                # 即時檔不存在
 fm = G.api_flowmom(None, dict(**{"from": T0 - 60, "to": T0 + 400}))
 assert len(fm["times"]) == len(exp) and fm["times"] == sorted(fm["times"]), fm
-assert abs(fm["rows"][0][1] - (exp[min(exp)]["delta"])) < 1e-6
+assert abs(fm["rows"][0][1] - (exp[min(exp)]["delta_tr"])) < 1e-6, "動能副圖要優先用實際成交的 delta_tr"
+assert fm["src"] == ["tr"] * len(fm["times"])
+# 舊版 bridge 沒有 delta_tr 的日子:退回 delta;同一段時間可以新舊混在一起
+old_t = T0 - 3 * 3600 // 60 * 60
+ST.append_minutes(mn_dir, [dict(t=old_t, n=60, delta=7.0, delta_buy=8.0, delta_sell=1.0), dict(t=old_t + 60, n=60, delta=-3.0, delta_tr=-9.0)])
+fm2 = G.api_flowmom(None, dict(**{"from": old_t - 60, "to": T0 + 400}))
+assert fm2["src"][:2] == ["mbo", "tr"] and fm2["rows"][0][1] == 7.0 and fm2["rows"][1][1] == -9.0, fm2
+assert abs(fm2["rows"][1][0] - (7.0 - 9.0)) < 1e-6, "累積線要把兩種來源接起來"
 print("orderflow archive ok")

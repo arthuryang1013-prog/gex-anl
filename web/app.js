@@ -1096,7 +1096,7 @@ function applySq() {
   D.flowMax = R ? Math.max(1, ...R.rows.filter(Boolean).map((r) => Math.abs(r[1]))) : 1;
   flowCum.setData(cum);
   spdSeries.setData(bars);
-  $('#subtitle').textContent = '訂單流動能 · 線:累積 Delta(綠正/紅負,口)· 柱:每分鐘主動買賣淨量(綠買/紅賣)· Bookmap 真實訂單流';
+  $('#subtitle').textContent = '訂單流動能 · 線:累積 Delta(綠正/紅負,口)· 柱:每分鐘主動買賣淨量(綠買/紅賣)· 實際成交(舊日子無此欄時退回 MBO 推判)· Bookmap 訂單流';
 }
 function setSubMode(m) {
   S.subMode = m; save(); syncUI(); applySq();
