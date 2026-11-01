@@ -22,11 +22,15 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import orderflow_store as ST
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "orderflow.json")
 HIST = os.path.join(HERE, "orderflow_history.jsonl")
 EVENTS = os.path.join(HERE, "orderflow_events.jsonl")     # 吸收/冰山/力竭/掃單事件(已加進 .gitignore)
 EVENTS_KEEP_SECS = 2 * 86400
+EVENTS_ARCHIVE_DIR = os.path.join(HERE, "orderflow_events_archive")   # 事件長期存檔(一天一檔,預設不刪;小)
+MINUTES_DIR = os.path.join(HERE, "orderflow_minutes_archive")                  # 每分鐘彙總長期存檔(一天一檔,預設不刪;小)
 CONFIG_PATH = os.path.join(HERE, "config.json")
 ARCHIVE_DIR = os.path.join(HERE, "orderflow_archive")   # 每日完整存檔(已加進 .gitignore)
 PORT = 8899
@@ -75,6 +79,10 @@ def _store_events(evs):
                 with open(EVENTS, "a", encoding="utf-8") as f:
                     for e in new:
                         f.write(json.dumps(e, ensure_ascii=False) + "\n")
+                try:
+                    ST.append_events(EVENTS_ARCHIVE_DIR, new)      # 長期存檔失敗不能影響即時資料
+                except Exception:
+                    pass
             now = time.time()
             if new and now - _ev_state["last_prune"] >= 600:
                 _ev_state["last_prune"] = now
@@ -265,10 +273,19 @@ class H(BaseHTTPRequestHandler):
             os.replace(tmp, OUT)
         except Exception as e:
             return self._send(500, {"ok": False, "error": str(e)})
-        _append_history({k: data[k] for k in HIST_KEEP if k in data})
+        hist_rec = {k: data[k] for k in HIST_KEEP if k in data}
+        _append_history(hist_rec)
+        try:
+            _minutes.add(hist_rec)
+        except Exception:
+            pass
         _store_events(data.get("events"))
         _archive_add({k: v for k, v in data.items() if k != "diag"})    # 診斷只留在 orderflow.json,不進每日存檔
         self._send(200, {"ok": True, "ts": data.get("ts")})
+
+
+_minutes = ST.MinuteAgg(MINUTES_DIR)
+atexit.register(lambda: _minutes.flush())
 
 
 def _periodic_flush():
@@ -276,12 +293,17 @@ def _periodic_flush():
     while True:
         time.sleep(30)
         _archive_flush()
+        try:
+            _minutes.flush_if_stale(time.time())
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
     print(f"orderflow 接收器啟動: http://0.0.0.0:{PORT}  →  {OUT}")
     print(f"歷史檔:{HIST}(保留 {HIST_WINDOW_SECS // 3600} 小時)")
     print(f"每日完整存檔:{ARCHIVE_DIR}(保留 {ARCHIVE_KEEP_DAYS} 天)")
+    print(f"事件長期存檔:{EVENTS_ARCHIVE_DIR}、每分鐘彙總長期存檔:{MINUTES_DIR}(都不刪,供歷史回放)")
     if _load_token():
         print("token 驗證:已啟用(沒帶正確 token 的請求會被拒絕)")
     else:

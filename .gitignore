@@ -17,6 +17,8 @@ config.json
 # ===== 執行時產生的資料 =====
 orderflow.json
 orderflow_history.jsonl
+orderflow_events_archive/
+orderflow_minutes_archive/
 levels_archive/
 levels_state.json
 levels_today.json

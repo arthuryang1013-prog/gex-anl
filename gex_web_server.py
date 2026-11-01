@@ -46,6 +46,7 @@ import deepseek_client as DC
 import mentor_log as ML
 import ai_mentor as AM
 import orderflow_minutes as OM
+import orderflow_store as OST
 
 try:
     HERE = os.path.dirname(os.path.abspath(__file__))
@@ -76,6 +77,8 @@ CONFIG_PATH = os.path.join(HERE, "config.json")
 ORDERFLOW_PATH = os.path.join(HERE, "orderflow.json")
 ORDERFLOW_HISTORY_PATH = os.path.join(HERE, "orderflow_history.jsonl")
 ORDERFLOW_EVENTS_PATH = os.path.join(HERE, "orderflow_events.jsonl")
+ORDERFLOW_EVENTS_ARCHIVE_DIR = os.path.join(HERE, "orderflow_events_archive")   # 事件長期存檔(歷史回放用)
+ORDERFLOW_MINUTES_DIR = os.path.join(HERE, "orderflow_minutes_archive")                  # 每分鐘彙總長期存檔(歷史回放用)
 DEFAULT_ORDERFLOW_MAX_AGE = 60.0   # orderflow.json 超過幾秒沒更新就視為斷線
 DEFAULT_ORDERFLOW_MAX_LAG = 30.0   # Bookmap 事件延遲超過幾秒就標記為「過時,不可信」
 FLOW_WEIGHT = 0.30                 # 有 orderflow 時它在總結論的權重;GEX 三市場佔 1 - FLOW_WEIGHT
@@ -989,8 +992,13 @@ def api_flowmom(con, q):
                 if lo <= ra <= hi:
                     recs.append((ra, r))
     except Exception:
-        return dict(step=step, times=[], rows=[])
-    if not recs:
+        recs = []          # 即時檔讀不到不代表沒有歷史:下面還會讀長期存檔
+    # 較早的日子:讀每分鐘長期存檔;最近(history 檔還有的部分)用即時檔重算,同一分鐘以收到包數較多者為準
+    try:
+        arch = OST.read_minutes(ORDERFLOW_MINUTES_DIR, lo, hi)
+    except Exception:
+        arch = {}
+    if not recs and not arch:
         return dict(step=step, times=[], rows=[])
 
     def fnum(v):
@@ -1000,7 +1008,12 @@ def api_flowmom(con, q):
             return 0.0
 
     # 注意:bridge 的 delta 是「近 60 秒滾動累計」,逐秒加總會放大約 60 倍;改取每分鐘最後一筆(見 orderflow_minutes.py)
-    mrows = OM.minute_rows([r for _, r in recs], step)
+    merged = dict(arch)
+    for m in (OM.minute_rows([r for _, r in recs], step) if recs else []):
+        old = merged.get(m["t"])
+        if old is None or (m.get("n") or 0) >= (old.get("n") or 0):
+            merged[m["t"]] = m
+    mrows = [merged[t] for t in sorted(merged)]
     times, rows, cum = [], [], 0.0
     for m in mrows:
         d = fnum(m.get("delta"))
@@ -2431,7 +2444,15 @@ def api_flowevents(con, q):
         lo, hi = float(q["from"]), float(q["to"])
     except (KeyError, TypeError, ValueError):
         return dict(ok=False, error="需要 from / to(epoch 秒)", events=[])
-    out = []
+    # 長期存檔(一天一檔,歷史回放用)+ 近 2 天的即時檔(存檔功能上線前的事件只在這裡);兩邊用 id 去重
+    out, seen = [], set()
+    try:
+        for e in OST.read_events(ORDERFLOW_EVENTS_ARCHIVE_DIR, lo, hi):
+            if e.get("id"):
+                seen.add(e["id"])
+            out.append(e)
+    except Exception:
+        pass
     try:
         with open(ORDERFLOW_EVENTS_PATH, "rb") as f:
             f.seek(0, 2)
@@ -2439,7 +2460,7 @@ def api_flowevents(con, q):
             f.seek(max(0, size - 8_000_000))
             raw = f.read().decode("utf-8", "ignore").splitlines()
     except Exception:
-        return dict(ok=True, events=[], n=0)
+        raw = []
     for ln in raw:
         try:
             e = json.loads(ln)
@@ -2447,9 +2468,14 @@ def api_flowevents(con, q):
             continue
         t = e.get("t")
         if isinstance(t, (int, float)) and lo <= t <= hi and e.get("k") in ("sweep", "stop", "absorb", "iceberg", "exhaust"):
+            if e.get("id"):
+                if e["id"] in seen:
+                    continue
+                seen.add(e["id"])
             out.append(e)
     out.sort(key=lambda e: e["t"])
-    return dict(ok=True, events=out[-800:], n=len(out))
+    cap = 8000          # 一整天可能上千筆;超過就留最新的(前端另有「前 N%」與合併)
+    return dict(ok=True, events=out[-cap:], n=len(out))
 
 
 def api_flowmark(con, q):
