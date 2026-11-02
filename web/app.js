@@ -41,6 +41,15 @@ const fM = (v) => {   // $M per 1 % move
   const a = Math.abs(v), s = v < 0 ? '−' : '+';
   return a >= 1000 ? `${s}${(a / 1000).toFixed(2)}B` : `${s}${a.toFixed(a >= 100 ? 0 : 1)}M`;
 };
+const fUSD = (v) => {   // 純美元金額(名目規模),無正負號
+  if (v == null || !isFinite(v)) return '—';
+  const a = Math.abs(v);
+  if (a >= 1e9) return `$${(a / 1e9).toFixed(1)}B`;
+  if (a >= 1e6) return `$${(a / 1e6).toFixed(1)}M`;
+  if (a >= 1e3) return `$${(a / 1e3).toFixed(0)}K`;
+  return `$${a.toFixed(0)}`;
+};
+const fX = (v) => (v == null || !isFinite(v) ? '—' : `${v.toFixed(1)}×`);
 const dtfCache = {};
 function dtf(key, opts) {
   const k = key + S.tz;
@@ -2297,7 +2306,9 @@ function evBody(e) {
   rows += row('累計成交', `${f0.format(e.vol)} 口`);
   rows += row('占該來源同期新增', `${(e.share * 100).toFixed(1)}%`);
   rows += row('該口 GEX 變化', `${fM(e.dgex)}`.replace('+', ''));
-  det = `<b>事實:</b>這個合約在兩次快照之間累計成交量增加了 ${f0.format(e.dvol)} 口,而且遠大於同一來源其他合約同期的新增量(偵測門檻:新增 ≥ 30 口且 ≥ 同來源最活躍合約(前 5%)同期新增量的 3 倍;同一合約 30 分鐘內不重複標記)。<br><b>限制:</b>成交量沒有買賣方向,看不出是買進或賣出、開倉或平倉,所以不能直接說「有人在押多/押空」。要確認需要逐筆成交與委買委賣資料。`;
+  rows += row('名目規模(口 × 履約價 × 乘數)', fUSD(e.notional));
+  rows += row('今日量 ÷ 前日 OI', fX(e.vol_oi));
+  det = `<b>事實:</b>這個合約在兩次快照之間累計成交量增加了 ${f0.format(e.dvol)} 口,而且遠大於同一來源其他合約同期的新增量(偵測門檻:新增 ≥ 30 口且 ≥ 同來源最活躍合約(前 5%)同期新增量的 3 倍;同一合約 30 分鐘內不重複標記)。<br><b>名目規模</b> = 新增口數 × 履約價 × 乘數,代表這批單控制多少美元的標的;它不是權利金(資料裡沒有選擇權成交價),同一口數在價平與深度價外的規模差很多,所以規模比口數更能代表「單有多大」。<br><b>今日量 ÷ 前日 OI</b>:OI 是前一日未平倉量;今天累計成交若已大於它(> 1×),代表這口合約換手明顯、交易熱度異常高。<br><b>限制:</b>成交量沒有買賣方向,看不出是買進或賣出、開倉或平倉,所以不能直接說「有人在押多/押空」;OI 也是前日數字,不能用來判盤中開倉或平倉。要確認需要逐筆成交與委買委賣資料。`;
   return { rows, det };
 }
 function showEvCard(e, at) {

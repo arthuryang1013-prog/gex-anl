@@ -866,7 +866,7 @@ def api_book(con, q):
 
 # ----------------------------- notable activity (volume surges) -----------------------------
 def _surge_frame(con, ts):
-    return pd.read_sql("SELECT src, expiry, strike, cp, dte, strike_nq, vol, gex_vol FROM contracts WHERE ts = ?", con, params=(ts,))
+    return pd.read_sql("SELECT src, expiry, strike, cp, dte, strike_nq, vol, gex_vol, oi, mult FROM contracts WHERE ts = ?", con, params=(ts,))
 
 
 def api_events(con, q):
@@ -896,9 +896,14 @@ def api_events(con, q):
                     if e - last_seen.get(key, 0) < 1800:
                         continue
                     last_seen[key] = e
+                    oi = float(r.oi) if r.oi is not None else None
+                    mult = float(r.mult) if r.mult is not None else 20.0
+                    notional = float(r.dvol) * float(r.strike) * mult          # 名目規模 = 口數 × 履約價 × 乘數(控制多少美元標的;不是權利金,資料沒有成交價)
+                    vol_oi = round(float(r.vol) / oi, 2) if oi else None       # 今日累計成交 ÷ 前日 OI(>1 代表換手明顯)
                     events.append(dict(type="surge", t=e, src=s, price=float(r.strike_nq), strike=float(r.strike), cp=r.cp, dte=int(r.dte), expiry=str(r.expiry),
                                        dvol=float(r.dvol), vol=float(r.vol), dgex=float(r.dgex), share=float(r.dvol) / tot,
-                                       mins=round((e - prev_e) / 60.0, 1), mult_base=typical))
+                                       mins=round((e - prev_e) / 60.0, 1), mult_base=typical,
+                                       notional=round(notional, 0), vol_oi=vol_oi))
         prev, prev_e = cur, e
     return dict(events=events[-80:])
 
