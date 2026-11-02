@@ -2051,7 +2051,7 @@ function renderBook() {
 const EV_NAME = { surge: '大量成交' };
 const KIND_NAME = { call: 'Call 牆', put: 'Put 牆', flip: 'Flip' };
 const evColor = (e) => SRC_COL[e.src];
-const evGlyph = (e) => (e.dte === 0 ? '0' : '量');   // 0DTE 大單特別標注「0」字,非 0DTE 用「量」
+const evGlyph = (e) => (e.cp === 'C' ? 'C' : 'P');   // 標 Call / Put(買賣方向沒有,只標是哪一種選擇權)
 let evHits = [];
 function barOf(t) { const i = snapIdx(t); return i < 0 ? -1 : i; }
 const fmtExp = (s) => { if (!s) return '?'; const y = s.slice(0, 4), m = s.slice(4, 6), d = s.slice(6, 8); return `${y}/${m}/${d}`; };   // '20261106' → '2026/11/06'
@@ -2098,7 +2098,7 @@ class EventPrim {
         if (x == null || y == null) continue;
         const k = Math.round(x / 18) + ':' + Math.round(y / 18), n = used.get(k) || 0; used.set(k, n + 1);
         const yy = y - n * 19;
-        const zero = e.dte === 0;   // 0DTE 大單特別標注:金圈 + 「0」字
+        const zero = e.dte === 0;   // 0DTE 大單特別標注:金圈(字形仍是 C/P)
         const rr = zero ? 8.5 : r;
         ctx.beginPath(); ctx.arc(x * hr, yy * vr, rr * hr, 0, 7);
         ctx.fillStyle = evColor(e); ctx.globalAlpha = 0.95; ctx.fill(); ctx.globalAlpha = 1;
