@@ -16,7 +16,7 @@ const SCOPE_KEY = { all: 'ALL', ex0: 'EX0', zero: 'ZERO' };
 /* ------------------------------ settings ------------------------------ */
 const DEF = { hours: 8, day: null, tz: 'Asia/Taipei', srcs: ['NQ', 'QQQ', 'NDX'], basis: 'oi', scope: 'all', lens: 'abs',
   tf: 1, bucket: 25, heat: true, lines: true, profile: true, sub: true, alpha: 85, compress: 70, follow: true, candle: 'mono',
-  heatMode: 'strike', heatSrc: 'ALL', band: true, bandW: 20, bandA: 45, wgt: { NQ: 20, QQQ: 35, NDX: 45 }, wver: 2, wnorm: true, mmarks: true, mscene: true, tbOpen: false, subH: 0, subFold: false, events: true, evTypes: { surge: true, touch: true, cross: true }, evSeen: 0,
+  heatMode: 'strike', heatSrc: 'ALL', band: true, bandW: 20, bandA: 45, wgt: { NQ: 20, QQQ: 35, NDX: 45 }, wver: 2, wnorm: true, mmarks: true, mscene: true, tbOpen: false, subH: 0, subFold: false, events: true, evTypes: { surge: true }, evSeen: 0,
   pal: { name: '預設', low: '#3752cd', mid: '#1c96c3', high: '#ffbc48', pos: '#2bc08b', neg: '#ff5c6c' },
   gridH: false, gridV: false, cross: 'normal', pmode: 0, auto: true, pline: true, llabels: true, stay: false, lw: 3, roff: 8, nosb: false,
   subMode: 'net', sqrib: false, emband: true, anly: 'pcr', anlyPcrBasis: 'vol', anlySkewSrc: 'NQ', anlyDivBasis: 'oi', anlyDivScope: 'all',
@@ -2048,53 +2048,20 @@ function renderBook() {
 }
 
 /* ------------------------------ events ------------------------------ */
-const EV_NAME = { surge: '大量成交', touch: '觸及關卡', cross: '穿越 Flip' };
+const EV_NAME = { surge: '大量成交' };
 const KIND_NAME = { call: 'Call 牆', put: 'Put 牆', flip: 'Flip' };
-const evColor = (e) => (e.type === 'surge' ? SRC_COL[e.src] : e.type === 'cross' ? '#d58cff' : e.kind === 'call' ? S.pal.pos : e.kind === 'put' ? S.pal.neg : '#ffd166');
-const evGlyph = (e) => (e.type === 'surge' ? '量' : e.type === 'cross' ? '穿' : '觸');
+const evColor = (e) => SRC_COL[e.src];
+const evGlyph = (e) => (e.dte === 0 ? '0' : '量');   // 0DTE 大單特別標注「0」字,非 0DTE 用「量」
 let evHits = [];
 function barOf(t) { const i = snapIdx(t); return i < 0 ? -1 : i; }
-function fwd(bi, level, mins) {   // what price did in the minutes after a candle
-  const n = Math.max(1, Math.ceil(mins / S.tf)), end = Math.min(D.bars.length - 1, bi + n);
-  if (end <= bi) return null;
-  let hi = -Infinity, lo = Infinity;
-  for (let i = bi + 1; i <= end; i++) { hi = Math.max(hi, D.bars[i].high); lo = Math.min(lo, D.bars[i].low); }
-  return { up: hi - level, dn: lo - level, done: bi + n <= D.bars.length - 1 };
-}
+const fmtExp = (s) => { if (!s) return '?'; const y = s.slice(0, 4), m = s.slice(4, 6), d = s.slice(6, 8); return `${y}/${m}/${d}`; };   // '20261106' → '2026/11/06'
 function rebuildClientEvents() {
-  const out = [];
-  if (D.kind === 'candles' && D.bars.length > 2) {
-    const cool = new Map();
-    for (const src of S.srcs) {
-      const ser = D.levels[src]; if (!ser || !ser.t.length) continue;
-      for (const kind of ['call', 'put', 'flip']) {
-        let pj = -1;
-        for (let i = 1; i < D.bars.length; i++) {
-          const b = D.bars[i], pb = D.bars[i - 1], j = lowerIdx(ser.t, b.time);
-          if (j < 0 || b.time - ser.t[j] > 1800) { pj = -1; continue; }
-          const L = ser[kind][j]; if (L == null) continue;
-          const pL = pj >= 0 ? ser[kind][pj] : L; pj = j;
-          const key = src + kind;
-          if (kind === 'flip') {
-            const was = pb.close - pL, now = b.close - L;
-            if (was * now < 0 && b.time - (cool.get(key) || 0) >= 2400) {
-              cool.set(key, b.time);
-              out.push({ type: 'cross', t: b.time, bi: i, src, kind, price: L, dir: now > 0 ? 'up' : 'dn', close: b.close });
-            }
-          } else if (b.low <= L && L <= b.high && !(pb.low <= pL && pL <= pb.high) && b.time - (cool.get(key) || 0) >= 3600) {
-            cool.set(key, b.time);
-            out.push({ type: 'touch', t: b.time, bi: i, src, kind, price: L, from: pb.close < L ? 'below' : 'above', hi: b.high, lo: b.low, close: b.close });
-          }
-        }
-      }
-    }
-  }
-  D.cevents = out; mergeEvents();
+  // 「觸及關卡」「穿越 Flip」標記已依使用者要求移除(2026-11-02);熱圖事件只剩選擇權大單(surge)。
+  D.cevents = []; mergeEvents();
 }
 function mergeEvents() {
-  const srv = D.srvEvents.map((e, k) => ({ ...e, id: 's' + k, bi: barOf(e.t) })).filter((e) => e.bi >= 0 && S.srcs.length >= 0);
-  const cl = (D.cevents || []).map((e, k) => ({ ...e, id: 'c' + k }));
-  D.events = [...srv, ...cl].sort((a, b) => a.t - b.t);
+  const srv = D.srvEvents.map((e, k) => ({ ...e, id: 's' + k, bi: barOf(e.t) })).filter((e) => e.bi >= 0);
+  D.events = srv.sort((a, b) => a.t - b.t);
   if (evPrim) evPrim.redraw();
   updateBell(); if (!$('#drawer').hidden) renderDrawer();
 }
@@ -2131,9 +2098,11 @@ class EventPrim {
         if (x == null || y == null) continue;
         const k = Math.round(x / 18) + ':' + Math.round(y / 18), n = used.get(k) || 0; used.set(k, n + 1);
         const yy = y - n * 19;
-        ctx.beginPath(); ctx.arc(x * hr, yy * vr, r * hr, 0, 7);
+        const zero = e.dte === 0;   // 0DTE 大單特別標注:金圈 + 「0」字
+        const rr = zero ? 8.5 : r;
+        ctx.beginPath(); ctx.arc(x * hr, yy * vr, rr * hr, 0, 7);
         ctx.fillStyle = evColor(e); ctx.globalAlpha = 0.95; ctx.fill(); ctx.globalAlpha = 1;
-        ctx.lineWidth = 1.5 * hr; ctx.strokeStyle = 'rgba(8,11,17,.9)'; ctx.stroke();
+        ctx.lineWidth = (zero ? 2.5 : 1.5) * hr; ctx.strokeStyle = zero ? '#e7a44c' : 'rgba(8,11,17,.9)'; ctx.stroke();
         ctx.fillStyle = '#0a0d12'; ctx.fillText(evGlyph(e), x * hr, yy * vr + 0.5 * hr);
         evHits.push({ x, y: yy, e });
       }
@@ -2313,34 +2282,22 @@ async function loadFlowEvents() {
 }
 const fmtTime = (t) => `台北 ${hmIn(t, 'Asia/Taipei')} · 紐約 ${hmIn(t, 'America/New_York')} · ${md(t)}`;
 function evTitle(e) {
-  if (e.type === 'surge') return `${e.src} ${f0.format(e.strike)} ${e.cp === 'C' ? 'Call' : 'Put'} · ${e.dte === 0 ? '0DTE' : e.dte + ' 天後到期'}`;
-  if (e.type === 'cross') return `${sn(e.src)} Flip ${e.dir === 'up' ? '向上穿越' : '向下穿越'} ${fP(e.price)}`;
-  return `${sn(e.src)} ${KIND_NAME[e.kind]} ${fP(e.price)}`;
+  const exp = fmtExp(e.expiry);
+  const due = e.dte === 0 ? `0DTE · ${exp} 到期` : `${exp} 到期(${e.dte} 天後)`;
+  return `${e.src} ${f0.format(e.strike)} ${e.cp === 'C' ? 'Call' : 'Put'} · ${due}`;
 }
 function evBody(e) {
   const row = (a, b) => `<div class="r"><span>${a}</span><span>${b}</span></div>`;
   let rows = '', det = '';
   const bar = D.bars[e.bi];
-  if (e.type === 'surge') {
-    rows += row('對應 NQ 點位', fP(e.price));
-    if (bar) rows += row('當時 NQ', `${fP(bar.close)}(${fSigned(bar.close - e.price, 0)} 點)`);
-    rows += row(`近 ${Math.round(e.mins)} 分鐘新增成交`, `<b>${f0.format(e.dvol)}</b> 口`);
-    rows += row('累計成交', `${f0.format(e.vol)} 口`);
-    rows += row('占該來源同期新增', `${(e.share * 100).toFixed(1)}%`);
-    rows += row('該口 GEX 變化', `${fM(e.dgex)}`.replace('+', ''));
-    det = `<b>事實:</b>這個合約在兩次快照之間累計成交量增加了 ${f0.format(e.dvol)} 口,而且遠大於同一來源其他合約同期的新增量(偵測門檻:新增 ≥ 30 口且 ≥ 同來源最活躍合約(前 5%)同期新增量的 3 倍;同一合約 30 分鐘內不重複標記)。<br><b>限制:</b>成交量沒有買賣方向,看不出是買進或賣出、開倉或平倉,所以不能直接說「有人在押多/押空」。要確認需要逐筆成交與委買委賣資料。`;
-  } else if (e.type === 'cross') {
-    rows += row('時間', hm(e.t)); rows += row('收盤價', fP(e.close));
-    const f = fwd(e.bi, e.price, 30);
-    if (f) rows += row(`之後 30 分鐘${f.done ? '' : '(進行中)'}`, `最高 ${fSigned(f.up, 0)} / 最低 ${fSigned(f.dn, 0)} 點`);
-    det = `<b>事實:</b>這根 K 棒的收盤價與前一根在 ${e.src} 的 flip 兩側不同。<br><b>慣例解讀(未驗證):</b>flip 上方造市商傾向壓低波動、下方傾向放大波動;事件之後的走勢僅供對照,樣本太少不能當結論。`;
-  } else {
-    rows += row('觸及方向', e.from === 'below' ? '從下方碰到' : '從上方碰到');
-    rows += row('該根 K 棒', `${fP(e.lo)} – ${fP(e.hi)}`); rows += row('收盤價', `${fP(e.close)}(${fSigned(e.close - e.price, 0)} 點)`);
-    const f = fwd(e.bi, e.price, 30);
-    if (f) rows += row(`之後 30 分鐘${f.done ? '' : '(進行中)'}`, `最高 ${fSigned(f.up, 0)} / 最低 ${fSigned(f.dn, 0)} 點`);
-    det = `<b>事實:</b>當時這根 K 棒的高低範圍包含該關卡,且前一根沒有碰到。同一關卡 60 分鐘內不重複標記。<br><b>提醒:</b>關卡是依選擇權部位算出的位置,價格碰到之後會反彈、突破或無反應,這裡只是記錄,不是預測。`;
-  }
+  rows += row('到期', `${fmtExp(e.expiry)} · ${e.dte === 0 ? '0DTE(今天到期)' : e.dte + ' 天後到期'}`);
+  rows += row('對應 NQ 點位', fP(e.price));
+  if (bar) rows += row('當時 NQ', `${fP(bar.close)}(${fSigned(bar.close - e.price, 0)} 點)`);
+  rows += row(`近 ${Math.round(e.mins)} 分鐘新增成交`, `<b>${f0.format(e.dvol)}</b> 口`);
+  rows += row('累計成交', `${f0.format(e.vol)} 口`);
+  rows += row('占該來源同期新增', `${(e.share * 100).toFixed(1)}%`);
+  rows += row('該口 GEX 變化', `${fM(e.dgex)}`.replace('+', ''));
+  det = `<b>事實:</b>這個合約在兩次快照之間累計成交量增加了 ${f0.format(e.dvol)} 口,而且遠大於同一來源其他合約同期的新增量(偵測門檻:新增 ≥ 30 口且 ≥ 同來源最活躍合約(前 5%)同期新增量的 3 倍;同一合約 30 分鐘內不重複標記)。<br><b>限制:</b>成交量沒有買賣方向,看不出是買進或賣出、開倉或平倉,所以不能直接說「有人在押多/押空」。要確認需要逐筆成交與委買委賣資料。`;
   return { rows, det };
 }
 function showEvCard(e, at) {

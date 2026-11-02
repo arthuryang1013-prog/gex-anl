@@ -896,7 +896,7 @@ def api_events(con, q):
                     if e - last_seen.get(key, 0) < 1800:
                         continue
                     last_seen[key] = e
-                    events.append(dict(type="surge", t=e, src=s, price=float(r.strike_nq), strike=float(r.strike), cp=r.cp, dte=int(r.dte),
+                    events.append(dict(type="surge", t=e, src=s, price=float(r.strike_nq), strike=float(r.strike), cp=r.cp, dte=int(r.dte), expiry=str(r.expiry),
                                        dvol=float(r.dvol), vol=float(r.vol), dgex=float(r.dgex), share=float(r.dvol) / tot,
                                        mins=round((e - prev_e) / 60.0, 1), mult_base=typical))
         prev, prev_e = cur, e
