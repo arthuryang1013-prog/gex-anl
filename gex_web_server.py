@@ -981,8 +981,8 @@ def api_squeeze(con, q):
 
 def api_flowmom(con, q):
     """orderflow 動能(取代 gamma squeeze 的「加速風險」副圖):
-    讀 orderflow_history.jsonl(每秒一筆),落 60 秒桶,回 times(epoch 秒)+ rows=[cum_delta, net_delta, buy, sell]。
-    cum_delta=視窗內累積 Delta(線);net_delta=每分鐘主動買賣淨量(柱)。無資料回空。"""
+    讀 orderflow_history.jsonl(每秒一筆),落 60 秒桶,回 times(epoch 秒)+ rows=[cum_delta, net_delta, buy, sell, vol]。
+    cum_delta=視窗內累積 Delta(線);net_delta=每分鐘主動買賣淨量(柱);vol=該分鐘成交量(跟 net_delta 同源,供前端算主動性比率)。無資料回空。"""
     lo, hi = int(q["from"]), int(q["to"])
     step = 60
     recs = []
@@ -1027,8 +1027,12 @@ def api_flowmom(con, q):
         tr = m.get("delta_tr")
         use_tr = tr is not None
         d = fnum(tr) if use_tr else fnum(m.get("delta"))
+        v = fnum(m.get("vol_tr")) if use_tr else fnum(m.get("vol"))
         cum += d
-        rows.append([round(cum, 1), round(d, 1), round(fnum(m.get("delta_buy")), 1), round(fnum(m.get("delta_sell")), 1)])
+        # rows: [累積 Delta, 每分鐘淨量, MBO買, MBO賣, 該分鐘成交量]。
+        # 第 5 欄(vol)跟第 2 欄(net_delta)同源:tr 用 vol_tr(實際成交)、退回 mbo 用 vol。
+        # 前端「吸收背離」線用它把淨量正規化成主動性比率(delta/vol)。
+        rows.append([round(cum, 1), round(d, 1), round(fnum(m.get("delta_buy")), 1), round(fnum(m.get("delta_sell")), 1), round(v, 1)])
         times.append(m["t"])
         src.append("tr" if use_tr else "mbo")
     return dict(step=step, times=times, rows=rows, src=src)

@@ -19,7 +19,7 @@ const DEF = { hours: 8, day: null, tz: 'Asia/Taipei', srcs: ['NQ', 'QQQ', 'NDX']
   heatMode: 'strike', heatSrc: 'ALL', band: true, bandW: 20, bandA: 45, wgt: { NQ: 20, QQQ: 35, NDX: 45 }, wver: 2, wnorm: true, mmarks: true, mscene: true, tbOpen: false, subH: 0, subFold: false, events: true, evTypes: { surge: true }, evSeen: 0,
   pal: { name: '預設', low: '#3752cd', mid: '#1c96c3', high: '#ffbc48', pos: '#2bc08b', neg: '#ff5c6c' },
   gridH: false, gridV: false, cross: 'normal', pmode: 0, auto: true, pline: true, llabels: true, stay: false, lw: 3, roff: 8, nosb: false,
-  subMode: 'net', sqrib: false, emband: true, anly: 'pcr', anlyPcrBasis: 'vol', anlySkewSrc: 'NQ', anlyDivBasis: 'oi', anlyDivScope: 'all',
+  subMode: 'net', sqrib: false, sqabs: true, emband: true, anly: 'pcr', anlyPcrBasis: 'vol', anlySkewSrc: 'NQ', anlyDivBasis: 'oi', anlyDivScope: 'all',
   flmark: true, feKinds: { sweep: true, stop: true, absorb: true, iceberg: true, exhaust: true }, feTop: { iceberg: 100, sweep: 100 }, feMerge: true, sets: false, mmini: true, lineCol: { NQ: '#7d9bd9', QQQ: '#39d98a', NDX: '#e7a44c', WGT: '#ff7ad9' } };
 const S = { ...DEF };
 try { if (/[?&]reset\b/.test(location.search)) localStorage.removeItem('gexweb.v1'); } catch (e) { /* ignore */ }
@@ -198,6 +198,15 @@ const flowCum = subChart.addSeries(LW.BaselineSeries, {
 const spdSeries = subChart.addSeries(LW.HistogramSeries, { visible: false, priceScaleId: 'spd', lastValueVisible: false, priceLineVisible: false,
   priceFormat: { type: 'custom', formatter: (v) => f0.format(v) + ' 口/分', minMove: 1 } });
 subChart.priceScale('spd').applyOptions({ scaleMargins: { top: 0.58, bottom: 0.03 }, borderVisible: false, visible: false });
+/* ---- 吸收背離線(左軸):流量方向 vs 價格方向背離。綠(正)=賣方主動但價格沒跌(有人在吸,看多);紅(負)=買方主動但價格沒漲(看空)。虛線跟累積 Delta 區分。 ---- */
+const absSeries = subChart.addSeries(LW.BaselineSeries, {
+  baseValue: { type: 'price', price: 0 },
+  topLineColor: UP, topFillColor1: 'rgba(38,201,139,.16)', topFillColor2: 'rgba(38,201,139,.01)',
+  bottomLineColor: DN, bottomFillColor1: 'rgba(255,92,108,.01)', bottomFillColor2: 'rgba(255,92,108,.16)',
+  lineWidth: 2, lineStyle: 2, visible: false, lastValueVisible: true, priceLineVisible: false, title: '吸收背離', priceScaleId: 'left',
+  priceFormat: { type: 'custom', formatter: (v) => (v >= 0 ? '+' : '') + Math.round(v * 100) + '%', minMove: 0.01 },
+});
+subChart.priceScale('left').applyOptions({ borderVisible: false, visible: false });
 const netZero = subChart.addSeries(LW.LineSeries, { color: '#e7a44c', lineWidth: 2, visible: false, lastValueVisible: true, priceLineVisible: false, title: '0DTE',
   priceFormat: { type: 'custom', formatter: (v) => fM(v).replace('+', ''), minMove: 0.01 } });
 const netEx0 = subChart.addSeries(LW.LineSeries, { color: '#7d9bd9', lineWidth: 2, visible: false, lastValueVisible: true, priceLineVisible: false, title: '排除0DTE',
@@ -1077,6 +1086,36 @@ async function loadSq() {
     D.sq = r; applySq(); redraw();
   } catch (e) { toast('訂單流動能計算失敗:' + e.message); }
 }
+function buildAbsorb() {
+  // 吸收背離:每分鐘把「實際成交淨量 delta / 成交量 vol」當主動性比率 r∈[-1,1](+買 -賣),
+  // 對上該分 K 的收-開 m(點)。賣方主動(r<0)但價格沒跌(m>-0.5)→有人在吸(看多,正);
+  // 買方主動(r>0)但價格沒漲(m<0.5)→有人再扛(看空,負)。取 3 分鐘滾動平均成線。
+  // 門檻 |r|>=0.05、價格死區 ±0.5 點 是初始值,未驗證;src='mbo'(舊資料)時用 MBO 量,可信度較低。
+  const R = D.sq;
+  if (!R || !R.rows.length || !D.barT.length) return [];
+  const raw = new Array(D.barT.length).fill(0);
+  let k = -1;
+  for (let i = 0; i < D.barT.length; i++) {
+    const t = D.barT[i];
+    while (k + 1 < R.times.length && R.times[k + 1] <= t) k++;
+    if (k < 0 || t - R.times[k] >= 1800) continue;
+    const row = R.rows[k]; if (!row) continue;
+    const d = row[1], v = row[4];
+    if (v == null || !(v > 0)) continue;
+    const r = d / v;
+    if (Math.abs(r) < 0.05) continue;
+    const bar = D.bars[i]; if (!bar) continue;
+    const m = bar.close - bar.open;
+    if (r < 0 && m > -0.5) raw[i] = Math.abs(r);        // 賣方主動但價格沒跌 → 看多吸收
+    else if (r > 0 && m < 0.5) raw[i] = -Math.abs(r);    // 買方主動但價格沒漲 → 看空吸收
+  }
+  const out = [];
+  for (let i = 0; i < raw.length; i++) {
+    let s = 0; for (let j = Math.max(0, i - 2); j <= i; j++) s += raw[j];
+    out.push({ time: D.barT[i], value: +(s / 3).toFixed(3) });
+  }
+  return out;
+}
 function applySq() {
   const sq = S.subMode === 'sq';
   subChart.applyOptions({ localization: { priceFormatter: sq ? (v) => f0.format(v) + ' 口' : (v) => fM(v).replace('+', '') } });
@@ -1085,10 +1124,12 @@ function applySq() {
   netEx0.applyOptions({ visible: !sq });
   flowCum.applyOptions({ visible: sq });
   spdSeries.applyOptions({ visible: sq });
+  absSeries.applyOptions({ visible: sq && S.sqabs });
   subChart.priceScale('spd').applyOptions({ visible: false });
+  subChart.priceScale('left').applyOptions({ visible: sq && S.sqabs });
   subChart.priceScale('right').applyOptions({ scaleMargins: sq ? { top: 0.14, bottom: 0.46 } : { top: 0.18, bottom: 0.12 } });
   $('#subwrap').classList.toggle('tall', sq);
-  if (!sq) { flowCum.setData([]); spdSeries.setData([]); }
+  if (!sq) { flowCum.setData([]); spdSeries.setData([]); absSeries.setData([]); }
   if (!sq) { applyNet(); return; }
   const cum = [], bars = []; let k = -1; const R = D.sq;
   for (let i = 0; i < D.barT.length; i++) {
@@ -1105,7 +1146,8 @@ function applySq() {
   D.flowMax = R ? Math.max(1, ...R.rows.filter(Boolean).map((r) => Math.abs(r[1]))) : 1;
   flowCum.setData(cum);
   spdSeries.setData(bars);
-  $('#subtitle').textContent = '訂單流動能 · 線:累積 Delta(綠正/紅負,口)· 柱:每分鐘主動買賣淨量(綠買/紅賣)· 實際成交(舊日子無此欄時退回 MBO 推判)· Bookmap 訂單流';
+  absSeries.setData(buildAbsorb());
+  $('#subtitle').textContent = '訂單流動能 · 線:累積 Delta(綠正/紅負,口)· 柱:每分鐘主動買賣淨量(綠買/紅賣)· 虛線(左軸):吸收背離(綠=賣方主動但價格沒跌、紅=買方主動但價格沒漲)· 實際成交';
 }
 function setSubMode(m) {
   S.subMode = m; save(); syncUI(); applySq();
@@ -1560,6 +1602,7 @@ $('#layers').addEventListener('click', (e) => {
   if (k === 'sub') requestAnimationFrame(() => { chart.timeScale().applyOptions({}); });
   if (k === 'events') { evPrim.redraw(); updateBell(); }
   if (k === 'sqrib' && S.sqrib) loadSq();
+  if (k === 'sqabs') applySq();
   if (k === 'mmarks') loadMentorMarks();
   if (k === 'flmark') { flowEvPrim.redraw(); updateFeLegend(); if (S.flmark) loadFlowEvents(); }
   if (k === 'mscene') applyChartPrefs();
