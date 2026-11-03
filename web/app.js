@@ -203,7 +203,7 @@ const absSeries = subChart.addSeries(LW.BaselineSeries, {
   baseValue: { type: 'price', price: 0 },
   topLineColor: UP, topFillColor1: 'rgba(38,201,139,.18)', topFillColor2: 'rgba(38,201,139,.01)',
   bottomLineColor: DN, bottomFillColor1: 'rgba(255,92,108,.01)', bottomFillColor2: 'rgba(255,92,108,.18)',
-  lineWidth: 2, lineStyle: 2, visible: false, lastValueVisible: true, priceLineVisible: false, title: '吸收背離',
+  lineWidth: 2, lineStyle: 2, baseLineColor: '#aab4c8', baseLineWidth: 1, visible: false, lastValueVisible: true, priceLineVisible: false, title: '吸收背離',
   priceFormat: { type: 'custom', formatter: (v) => (v >= 0 ? '+' : '') + Math.round(v * 100) + '%', minMove: 0.01 },
 });
 const netZero = subChart.addSeries(LW.LineSeries, { color: '#e7a44c', lineWidth: 2, visible: false, lastValueVisible: true, priceLineVisible: false, title: '0DTE',
