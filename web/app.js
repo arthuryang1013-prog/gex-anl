@@ -20,10 +20,10 @@ const DEF = { hours: 8, day: null, tz: 'Asia/Taipei', srcs: ['NQ', 'QQQ', 'NDX']
   pal: { name: '預設', low: '#3752cd', mid: '#1c96c3', high: '#ffbc48', pos: '#2bc08b', neg: '#ff5c6c' },
   gridH: false, gridV: false, cross: 'normal', pmode: 0, auto: true, pline: true, llabels: true, stay: false, lw: 3, roff: 8, nosb: false,
   subMode: 'net', sqrib: false, emband: true, anly: 'pcr', anlyPcrBasis: 'vol', anlySkewSrc: 'NQ', anlyDivBasis: 'oi', anlyDivScope: 'all',
-  flmark: true, feKinds: { sweep: true, stop: true, absorb: true, iceberg: true, exhaust: true }, feTop: { iceberg: 25, sweep: 100 }, feMerge: true, sets: false, mmini: true, lineCol: { NQ: '#7d9bd9', QQQ: '#39d98a', NDX: '#e7a44c', WGT: '#ff7ad9' } };
+  flmark: true, feKinds: { sweep: true, stop: true, absorb: true, iceberg: true, exhaust: true }, feTop: { iceberg: 100, sweep: 100 }, feMerge: true, sets: false, mmini: true, lineCol: { NQ: '#7d9bd9', QQQ: '#39d98a', NDX: '#e7a44c', WGT: '#ff7ad9' } };
 const S = { ...DEF };
 try { if (/[?&]reset\b/.test(location.search)) localStorage.removeItem('gexweb.v1'); } catch (e) { /* ignore */ }
-try { const o = JSON.parse(localStorage.getItem('gexweb.v1') || '{}'); Object.assign(S, o); S.pal = { ...DEF.pal, ...(o.pal || {}) }; S.evTypes = { ...DEF.evTypes, ...(o.evTypes || {}) }; S.feKinds = { ...DEF.feKinds, ...(o.feKinds || {}) }; S.feTop = { ...DEF.feTop, ...(o.feTop || {}) }; for (const k of Object.keys(S.feTop)) if (![10, 25, 50, 100].includes(+S.feTop[k])) S.feTop[k] = 100; S.feMerge = o.feMerge !== false; S.wgt = { ...DEF.wgt, ...(o.wgt || {}) }; S.lineCol = { ...DEF.lineCol, ...(o.lineCol || {}) }; if ((o.wver || 0) < 2) { S.wgt = { ...DEF.wgt }; S.wver = 2; } if (S.subMode !== 'net' && S.subMode !== 'sq') S.subMode = 'net'; if (!['pcr', 'skew', 'div'].includes(S.anly)) S.anly = 'pcr'; if (!['vol', 'oi'].includes(S.anlyPcrBasis)) S.anlyPcrBasis = 'vol'; if (!['NQ', 'QQQ', 'NDX'].includes(S.anlySkewSrc)) S.anlySkewSrc = 'NQ'; if (!['oi', 'vol'].includes(S.anlyDivBasis)) S.anlyDivBasis = 'oi'; if (!['all', 'ex0', 'zero'].includes(S.anlyDivScope)) S.anlyDivScope = 'all'; } catch (e) { /* storage may be blocked */ }
+try { const o = JSON.parse(localStorage.getItem('gexweb.v1') || '{}'); Object.assign(S, o); S.pal = { ...DEF.pal, ...(o.pal || {}) }; S.evTypes = { ...DEF.evTypes, ...(o.evTypes || {}) }; S.feKinds = { ...DEF.feKinds, ...(o.feKinds || {}) }; S.feTop = { ...DEF.feTop, ...(o.feTop || {}) }; for (const k of Object.keys(S.feTop)) if (![10, 25, 50, 100].includes(+S.feTop[k])) S.feTop[k] = 100; if ((o.feVer || 0) < 1) { S.feTop = { ...DEF.feTop }; } S.feVer = 1; S.feMerge = o.feMerge !== false; S.wgt = { ...DEF.wgt, ...(o.wgt || {}) }; S.lineCol = { ...DEF.lineCol, ...(o.lineCol || {}) }; if ((o.wver || 0) < 2) { S.wgt = { ...DEF.wgt }; S.wver = 2; } if (S.subMode !== 'net' && S.subMode !== 'sq') S.subMode = 'net'; if (!['pcr', 'skew', 'div'].includes(S.anly)) S.anly = 'pcr'; if (!['vol', 'oi'].includes(S.anlyPcrBasis)) S.anlyPcrBasis = 'vol'; if (!['NQ', 'QQQ', 'NDX'].includes(S.anlySkewSrc)) S.anlySkewSrc = 'NQ'; if (!['oi', 'vol'].includes(S.anlyDivBasis)) S.anlyDivBasis = 'oi'; if (!['all', 'ex0', 'zero'].includes(S.anlyDivScope)) S.anlyDivScope = 'all'; } catch (e) { /* storage may be blocked */ }
 const save = () => { try { localStorage.setItem('gexweb.v1', JSON.stringify(S)); } catch (e) { /* ignore */ } };
 
 /* ------------------------------ state ------------------------------ */
@@ -654,7 +654,7 @@ async function loadAll(fit) {
     if (fit) { chart.timeScale().fitContent(); }
     $('#empty').hidden = true;
     redraw(); renderSide(); updateReplayBounds(); updateLegend();
-    loadHeat(); loadLevels(token); loadBand(token); loadBand0(token); loadBook(); loadEvents(true); loadSq();
+    loadHeat(); loadLevels(token); loadBand(token); loadBand0(token); loadBook(); loadEvents(true); loadSq(); loadFlowEvents();
   } catch (e) {
     toast('讀取資料失敗:' + e.message);
   }
@@ -1217,8 +1217,8 @@ function tickClock() {
   const el = $('#gClock'); if (!el) return;
   const now = Date.now(), si = sessionInfo(now);
   let line;
-  if (si.inSession) line = `<small>交易時段中(紐約 09:30–13:30)</small><b>剩 ${fHMS(si.end - now)}</b>`;
-  else if (si.next) line = `<small>距下次開盤(台北 ${fClock(si.next, TW_TZ)} · 紐約 09:30)</small><b>${fHMS(si.next - now)}</b>`;
+  if (si.inSession) line = `<small>交易時段中(台北 ${fClock(si.start, TW_TZ)}–${fClock(si.end, TW_TZ)})</small><b>剩 ${fHMS(si.end - now)}</b>`;
+  else if (si.next) line = `<small>距下次開盤(台北 ${fClock(si.next, TW_TZ)})</small><b>${fHMS(si.next - now)}</b>`;
   else line = '<small>交易時段</small><b>—</b>';
   el.innerHTML = line + `<small>台北 ${fClock(now, TW_TZ)} · 紐約 ${fClock(now, NY_TZ)}</small>`;
 }
