@@ -23,7 +23,7 @@ const DEF = { hours: 8, day: null, tz: 'Asia/Taipei', srcs: ['NQ', 'QQQ', 'NDX']
   flmark: true, feKinds: { sweep: true, stop: true, absorb: true, iceberg: true, exhaust: true }, feTop: { iceberg: 100, sweep: 100 }, feMerge: true, sets: false, mmini: true, lineCol: { NQ: '#7d9bd9', QQQ: '#39d98a', NDX: '#e7a44c', WGT: '#ff7ad9' } };
 const S = { ...DEF };
 try { if (/[?&]reset\b/.test(location.search)) localStorage.removeItem('gexweb.v1'); } catch (e) { /* ignore */ }
-try { const o = JSON.parse(localStorage.getItem('gexweb.v1') || '{}'); Object.assign(S, o); S.pal = { ...DEF.pal, ...(o.pal || {}) }; S.evTypes = { ...DEF.evTypes, ...(o.evTypes || {}) }; S.feKinds = { ...DEF.feKinds, ...(o.feKinds || {}) }; S.feTop = { ...DEF.feTop, ...(o.feTop || {}) }; for (const k of Object.keys(S.feTop)) if (![10, 25, 50, 100].includes(+S.feTop[k])) S.feTop[k] = 100; if ((o.feVer || 0) < 1) { S.feTop = { ...DEF.feTop }; } S.feVer = 1; S.feMerge = o.feMerge !== false; S.wgt = { ...DEF.wgt, ...(o.wgt || {}) }; S.lineCol = { ...DEF.lineCol, ...(o.lineCol || {}) }; if ((o.wver || 0) < 2) { S.wgt = { ...DEF.wgt }; S.wver = 2; } if (!['net', 'sq', 'abs'].includes(S.subMode)) S.subMode = 'net'; if (!['pcr', 'skew', 'div'].includes(S.anly)) S.anly = 'pcr'; if (!['vol', 'oi'].includes(S.anlyPcrBasis)) S.anlyPcrBasis = 'vol'; if (!['NQ', 'QQQ', 'NDX'].includes(S.anlySkewSrc)) S.anlySkewSrc = 'NQ'; if (!['oi', 'vol'].includes(S.anlyDivBasis)) S.anlyDivBasis = 'oi'; if (!['all', 'ex0', 'zero'].includes(S.anlyDivScope)) S.anlyDivScope = 'all'; } catch (e) { /* storage may be blocked */ }
+try { const o = JSON.parse(localStorage.getItem('gexweb.v1') || '{}'); Object.assign(S, o); S.pal = { ...DEF.pal, ...(o.pal || {}) }; S.evTypes = { ...DEF.evTypes, ...(o.evTypes || {}) }; S.feKinds = { ...DEF.feKinds, ...(o.feKinds || {}) }; S.feTop = { ...DEF.feTop, ...(o.feTop || {}) }; for (const k of Object.keys(S.feTop)) if (![10, 25, 50, 100].includes(+S.feTop[k])) S.feTop[k] = 100; if ((o.feVer || 0) < 1) { S.feTop = { ...DEF.feTop }; } S.feVer = 1; S.feMerge = o.feMerge !== false; S.wgt = { ...DEF.wgt, ...(o.wgt || {}) }; S.lineCol = { ...DEF.lineCol, ...(o.lineCol || {}) }; if ((o.wver || 0) < 2) { S.wgt = { ...DEF.wgt }; S.wver = 2; } if (!['net', 'sq', 'abs', 'cum'].includes(S.subMode)) S.subMode = 'net'; if (!['pcr', 'skew', 'div'].includes(S.anly)) S.anly = 'pcr'; if (!['vol', 'oi'].includes(S.anlyPcrBasis)) S.anlyPcrBasis = 'vol'; if (!['NQ', 'QQQ', 'NDX'].includes(S.anlySkewSrc)) S.anlySkewSrc = 'NQ'; if (!['oi', 'vol'].includes(S.anlyDivBasis)) S.anlyDivBasis = 'oi'; if (!['all', 'ex0', 'zero'].includes(S.anlyDivScope)) S.anlyDivScope = 'all'; } catch (e) { /* storage may be blocked */ }
 const save = () => { try { localStorage.setItem('gexweb.v1', JSON.stringify(S)); } catch (e) { /* ignore */ } };
 
 /* ------------------------------ state ------------------------------ */
@@ -206,11 +206,21 @@ const absSeries = subChart.addSeries(LW.BaselineSeries, {
   lineWidth: 2, lineStyle: 2, baseLineColor: '#aab4c8', baseLineWidth: 1, visible: false, lastValueVisible: true, priceLineVisible: false, title: '吸收背離',
   priceFormat: { type: 'custom', formatter: (v) => (v >= 0 ? '+' : '') + Math.round(v * 100) + '%', minMove: 0.01 },
 });
+/* ---- 累積吸收(副圖分頁「累積吸收」):滾動 30 分鐘「累積 Delta」vs「同段價格淨變動」的背離。
+   綠(正)=累積賣壓但價格沒跌/還漲(看不見的買盤在接,看多暗流);紅(負)=累積買壓但價格沒漲/還跌(看空)。
+   實線(累積版),與上面的「吸收背離」(每分鐘、虛線)對照。門檻全是初始值、未驗證。 ---- */
+const cumAbsSeries = subChart.addSeries(LW.BaselineSeries, {
+  baseValue: { type: 'price', price: 0 },
+  topLineColor: UP, topFillColor1: 'rgba(38,201,139,.16)', topFillColor2: 'rgba(38,201,139,.01)',
+  bottomLineColor: DN, bottomFillColor1: 'rgba(255,92,108,.01)', bottomFillColor2: 'rgba(255,92,108,.16)',
+  lineWidth: 2, baseLineColor: '#aab4c8', baseLineWidth: 1, visible: false, lastValueVisible: true, priceLineVisible: false, title: '累積吸收',
+  priceFormat: { type: 'custom', formatter: (v) => (v >= 0 ? '+' : '') + Math.round(v * 100) + '%', minMove: 0.01 },
+});
 const netZero = subChart.addSeries(LW.LineSeries, { color: '#e7a44c', lineWidth: 2, visible: false, lastValueVisible: true, priceLineVisible: false, title: '0DTE',
   priceFormat: { type: 'custom', formatter: (v) => fM(v).replace('+', ''), minMove: 0.01 } });
 const netEx0 = subChart.addSeries(LW.LineSeries, { color: '#7d9bd9', lineWidth: 2, visible: false, lastValueVisible: true, priceLineVisible: false, title: '排除0DTE',
   priceFormat: { type: 'custom', formatter: (v) => fM(v).replace('+', ''), minMove: 0.01 } });
-const subSeries = () => (S.subMode === 'sq' ? flowCum : S.subMode === 'abs' ? absSeries : netSeries);
+const subSeries = () => (S.subMode === 'sq' ? flowCum : S.subMode === 'abs' ? absSeries : S.subMode === 'cum' ? cumAbsSeries : netSeries);
 const ORANGE = '#e7a44c';
 
 /* ---- ±1σ expected-move band (two dashed amber lines + a faint fill channel behind the candles) ---- */
@@ -1077,7 +1087,7 @@ $('#mminiX').onclick = () => { S.mmini = false; save(); $('#mmini').hidden = tru
 })();
 /* ---- orderflow momentum ---- */
 async function loadSq() {
-  if (S.subMode !== 'sq' && S.subMode !== 'abs' && !S.sqrib) { return; }
+  if (S.subMode !== 'sq' && S.subMode !== 'abs' && S.subMode !== 'cum' && !S.sqrib) { return; }
   const tok = ++D.sqTok, { lo, hi } = rangeNow();
   try {
     const r = await api('flowmom', { from: lo, to: hi });
@@ -1115,26 +1125,74 @@ function buildAbsorb() {
   }
   return out;
 }
+function buildAbsorbCum() {
+  // 累積吸收:滾動 W 分鐘,把「累積實際成交 Delta(delta_tr)」對上「同段價格淨變動」的背離。
+  // 累積賣壓(cum ≤ -FLOW_MIN)但價格沒跌(move > -DEAD_PTS,含平盤與上漲)→ 看不見的買盤在接,看多(綠,正);
+  // 累積買壓(cum ≥ +FLOW_MIN)但價格沒漲(move < +DEAD_PTS)→ 看不見的賣盤在扛,看空(紅,負)。
+  // 強度 = min(1, |cum| / FLOW_REF)。跟每分鐘版「吸收背離」不同:這裡看的是「整段窗口的累積淨量」,
+  // 所以能抓「小單一直補、單分鐘 r 都很小」的暗流;代價是窗口越長越鈍。門檻全是初始值、未驗證。
+  const W = 30;          // 滾動窗口(分鐘)
+  const FLOW_MIN = 500;  // 窗口累積 Delta 至少 ±500 口才算「持續單邊」
+  const FLOW_REF = 1200; // 強度滿格刻度:|累積 Delta| 到 1200 = 100%
+  const DEAD_PTS = 10;   // 價格死區(點):往攻擊方向移動 ≤10 點視為「被吸住」
+  const R = D.sq;
+  if (!R || !R.rows.length || !D.barT.length) return [];
+  const out = [];
+  let a = 0, b = 0;      // flowmom 分鐘指標:a=窗口起點,b=窗口終點(皆單調遞增)
+  let j0 = -1;           // 價格指標:最後一根 barT ≤ 窗口起點的 K 棒
+  for (let i = 0; i < D.barT.length; i++) {
+    const t = D.barT[i];
+    while (b < R.times.length && R.times[b] <= t) b++;
+    const bEnd = b - 1;
+    if (bEnd < 0) { out.push({ time: t, value: 0 }); continue; }
+    const w0 = t - W * 60;
+    while (a < R.times.length && R.times[a] < w0) a++;
+    while (j0 + 1 < D.barT.length && D.barT[j0 + 1] <= w0) j0++;
+    const bar0 = j0 >= 0 ? D.bars[j0] : null;
+    const bar1 = D.bars[i];
+    if (!bar0 || !bar1 || bar0.close == null || bar1.close == null) { out.push({ time: t, value: 0 }); continue; }
+    let cum = 0;
+    for (let k = a; k <= bEnd; k++) {
+      const row = R.rows[k];
+      if (!row) continue;
+      const d = row[1];
+      if (d != null && isFinite(d)) cum += d;
+    }
+    const move = bar1.close - bar0.close;
+    let v = 0;
+    if (cum <= -FLOW_MIN && move > -DEAD_PTS) v = Math.min(1, -cum / FLOW_REF);        // 累積賣壓、價格沒跌 → 看多
+    else if (cum >= FLOW_MIN && move < DEAD_PTS) v = -Math.min(1, cum / FLOW_REF);     // 累積買壓、價格沒漲 → 看空
+    out.push({ time: t, value: +v.toFixed(3) });
+  }
+  return out;
+}
 function applySq() {
-  const sq = S.subMode === 'sq', ab = S.subMode === 'abs';
-  const fmt = ab ? (v) => (v >= 0 ? '+' : '') + Math.round(v * 100) + '%' : sq ? (v) => f0.format(v) + ' 口' : (v) => fM(v).replace('+', '');
+  const sq = S.subMode === 'sq', ab = S.subMode === 'abs', cu = S.subMode === 'cum';
+  const fmt = (ab || cu) ? (v) => (v >= 0 ? '+' : '') + Math.round(v * 100) + '%' : sq ? (v) => f0.format(v) + ' 口' : (v) => fM(v).replace('+', '');
   subChart.applyOptions({ localization: { priceFormatter: fmt } });
-  netSeries.applyOptions({ visible: !sq && !ab });
-  netZero.applyOptions({ visible: !sq && !ab });
-  netEx0.applyOptions({ visible: !sq && !ab });
+  netSeries.applyOptions({ visible: !sq && !ab && !cu });
+  netZero.applyOptions({ visible: !sq && !ab && !cu });
+  netEx0.applyOptions({ visible: !sq && !ab && !cu });
   flowCum.applyOptions({ visible: sq });
   spdSeries.applyOptions({ visible: sq });
   absSeries.applyOptions({ visible: ab });
+  cumAbsSeries.applyOptions({ visible: cu });
   subChart.priceScale('spd').applyOptions({ visible: false });
   subChart.priceScale('right').applyOptions({ scaleMargins: sq ? { top: 0.14, bottom: 0.46 } : { top: 0.18, bottom: 0.12 } });
   $('#subwrap').classList.toggle('tall', sq);
   if (ab) {
-    flowCum.setData([]); spdSeries.setData([]);
+    flowCum.setData([]); spdSeries.setData([]); cumAbsSeries.setData([]);
     absSeries.setData(buildAbsorb());
     $('#subtitle').textContent = '吸收背離 · 綠(0上)=賣方主動但價格沒跌(看多暗流)· 紅(0下)=買方主動但價格沒漲(看空)· 3分鐘平均 · 實際成交 Delta/量 · 未驗證';
     return;
   }
-  if (!sq) { flowCum.setData([]); spdSeries.setData([]); absSeries.setData([]); applyNet(); return; }
+  if (cu) {
+    flowCum.setData([]); spdSeries.setData([]); absSeries.setData([]);
+    cumAbsSeries.setData(buildAbsorbCum());
+    $('#subtitle').textContent = '累積吸收 · 綠(0上)=近30分累積賣壓≥500口但價格沒跌(看多暗流)· 紅(0下)=累積買壓但價格沒漲(看空)· 強度=累積Δ/1200 · 實際成交 · 未驗證';
+    return;
+  }
+  if (!sq) { flowCum.setData([]); spdSeries.setData([]); absSeries.setData([]); cumAbsSeries.setData([]); applyNet(); return; }
   const cum = [], bars = []; let k = -1; const R = D.sq;
   for (let i = 0; i < D.barT.length; i++) {
     const t = D.barT[i];
@@ -1150,12 +1208,12 @@ function applySq() {
   D.flowMax = R ? Math.max(1, ...R.rows.filter(Boolean).map((r) => Math.abs(r[1]))) : 1;
   flowCum.setData(cum);
   spdSeries.setData(bars);
-  absSeries.setData([]);
+  absSeries.setData([]); cumAbsSeries.setData([]);
   $('#subtitle').textContent = '訂單流動能 · 線:累積 Delta(綠正/紅負,口)· 柱:每分鐘主動買賣淨量(綠買/紅賣)· 實際成交(舊日子無此欄時退回 MBO 推判)· Bookmap 訂單流';
 }
 function setSubMode(m) {
   S.subMode = m; save(); syncUI(); applySq();
-  if (m === 'sq' || m === 'abs') loadSq();
+  if (m === 'sq' || m === 'abs' || m === 'cum') loadSq();
 }
 class SqRibbon {
   attached(p) { this.series = p.series; this.chart = p.chart; this.req = p.requestUpdate; }
