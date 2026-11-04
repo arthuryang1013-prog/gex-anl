@@ -1127,17 +1127,20 @@ function buildAbsorb() {
 }
 function buildAbsorbCum() {
   // 累積吸收:滾動 W 分鐘,把「累積實際成交 Delta(delta_tr)」對上「同段價格淨變動」的背離。
-  // 累積賣壓(cum ≤ -FLOW_MIN)但價格沒跌(move > -DEAD_PTS,含平盤與上漲)→ 看不見的買盤在接,看多(綠,正);
-  // 累積買壓(cum ≥ +FLOW_MIN)但價格沒漲(move < +DEAD_PTS)→ 看不見的賣盤在扛,看空(紅,負)。
+  // 原版是「吸收 = 反轉」:累積賣壓但價格沒跌 = 有人接 → 看多;累積買壓但價格沒漲 = 有人扛 → 看空。
+  // 但 2026-11-04 回測 8 天 16 段訊號(15 段分出勝負),走反的有 12 段(80%):看多 4 段全先跌、看空 8/11 先漲。
+  // 推測「流量 vs 價格背離時,是流量方向贏」→ 累積賣壓 + 價格沒跌 = 出貨後往下、累積買壓 + 價格沒漲 = 累積後突破。
+  // 所以 FLIP 把方向翻轉(這是 15 段 post-hoc 的假設、未驗證,不是結論;資料夠了隨時可翻回)。
   // 強度 = min(1, |cum| / FLOW_REF)。跟每分鐘版「吸收背離」不同:這裡看的是「整段窗口的累積淨量」,
   // 所以能抓「小單一直補、單分鐘 r 都很小」的暗流;代價是窗口越長越鈍。門檻全是初始值、未驗證。
   // 另加「單邊一致性」:窗口內同號分鐘數要 ≥ CONSIST。沒有這條時,「先崩後拉」的 V 型反轉會混在同一個
   // 窗口(淨量雖大、方向卻不純),被誤判成吸收(真資料 11-04 00:50~00:56 的誤判就是這種)。
   const W = 30;          // 滾動窗口(分鐘)
-  const FLOW_MIN = 500;  // 窗口累積 Delta 至少 ±500 口才算「持續單邊」
+  const FLOW_MIN = 300;  // 窗口累積 Delta 至少 ±300 口才算「持續單邊」(2026-11-04 從 500 放寬,讓訊號多一點)
   const FLOW_REF = 1200; // 強度滿格刻度:|累積 Delta| 到 1200 = 100%
   const DEAD_PTS = 10;   // 價格死區(點):往攻擊方向移動 ≤10 點視為「被吸住」
   const CONSIST = 0.65;  // 單邊一致性:窗口內同號分鐘佔比下限(排除 V 型反轉混雜;未驗證)
+  const FLIP = true;     // 方向翻轉(延續假設):true=累積賣壓看空、累積買壓看多;false=回到「吸收=反轉」。未驗證
   const R = D.sq;
   if (!R || !R.rows.length || !D.barT.length) return [];
   const out = [];
@@ -1166,8 +1169,9 @@ function buildAbsorbCum() {
     }
     const move = bar1.close - bar0.close;
     let v = 0;
-    if (cum <= -FLOW_MIN && move > -DEAD_PTS && neg / n >= CONSIST) v = Math.min(1, -cum / FLOW_REF);        // 累積賣壓、價格沒跌 → 看多
-    else if (cum >= FLOW_MIN && move < DEAD_PTS && pos / n >= CONSIST) v = -Math.min(1, cum / FLOW_REF);     // 累積買壓、價格沒漲 → 看空
+    if (cum <= -FLOW_MIN && move > -DEAD_PTS && neg / n >= CONSIST) v = Math.min(1, -cum / FLOW_REF);        // 累積賣壓、價格沒跌 → (吸收版)看多
+    else if (cum >= FLOW_MIN && move < DEAD_PTS && pos / n >= CONSIST) v = -Math.min(1, cum / FLOW_REF);     // 累積買壓、價格沒漲 → (吸收版)看空
+    if (FLIP) v = -v;  // 方向翻轉:累積賣壓+價格沒跌 → 看空(出貨)、累積買壓+價格沒漲 → 看多(累積突破)
     out.push({ time: t, value: +v.toFixed(3) });
   }
   return out;
@@ -1195,7 +1199,7 @@ function applySq() {
   if (cu) {
     flowCum.setData([]); spdSeries.setData([]); absSeries.setData([]);
     cumAbsSeries.setData(buildAbsorbCum());
-    $('#subtitle').textContent = '累積吸收 · 綠(0上)=近30分持續賣壓(≥500口、同號≥65%)但價格沒跌(看多暗流)· 紅(0下)=持續買壓但價格沒漲(看空)· 強度=累積Δ/1200 · 實際成交 · 未驗證';
+    $('#subtitle').textContent = '累積吸收(方向已翻轉·延續假設)· 綠(0上)=近30分持續買壓(≥300口、同號≥65%)但價格沒漲→看多突破 · 紅(0下)=持續賣壓但價格沒跌→看空 · 強度=累積Δ/1200 · 實際成交 · 未驗證';
     return;
   }
   if (!sq) { flowCum.setData([]); spdSeries.setData([]); absSeries.setData([]); cumAbsSeries.setData([]); applyNet(); return; }

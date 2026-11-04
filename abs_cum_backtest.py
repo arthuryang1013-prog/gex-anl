@@ -2,8 +2,8 @@
 """abs_cum_backtest.py — 回測「累積吸收」訊號:亮綠/亮紅之後,±40 點誰先到(唯讀)。
 
 做法:
-  1. 用 scan_abs_cum 同一套門檻(W=30 / FLOW_MIN=500 / FLOW_REF=1200 / DEAD_PTS=10 /
-     CONSIST=0.65)掃每分鐘存檔,找出每個「訊號段」(連續同方向亮燈的一段)。
+  1. 用 scan_abs_cum 同一套門檻(W=30 / FLOW_MIN=300 / FLOW_REF=1200 / DEAD_PTS=10 /
+     CONSIST=0.65,方向預設翻轉=延續假設)掃每分鐘存檔,找出每個「訊號段」(連續同方向亮燈的一段)。
   2. 每段取第一根當進場(你在圖上最早會看到它的那根),進場價用該分鐘現價(spot)。
   3. 往後看 1 分 K,判 ±40 點誰先到(和 thesis_outcome.py 同一套 first_touch):
      綠(看多)先漲 40 = 命中;紅(看空)先跌 40 = 命中;30 分沒到 = 逾時;
@@ -15,6 +15,7 @@
   python3 abs_cum_backtest.py --all-hours     # 不分交易時段
   python3 abs_cum_backtest.py --days 10       # 只掃最近 10 天
   python3 abs_cum_backtest.py --show all      # 列出每一段訊號與結果
+  python3 abs_cum_backtest.py --flow-min 500 --no-flip   # 試「原始門檻 + 不翻轉」比較
 
 限制:訊號稀有(一天約 0~2 段),樣本少誤差極大;命中率要穩定高過兩平才有意義,
   樣本夠(連續多天、分出勝負 > 30)之前,結果只是線索,不是結論。
@@ -55,6 +56,10 @@ def main():
     ap.add_argument("--cost", type=float, default=2.0, help="來回成本(點)")
     ap.add_argument("--all-hours", action="store_true")
     ap.add_argument("--show", choices=["sum", "all"], default="sum")
+    ap.add_argument("--flow-min", type=float, default=SC.FLOW_MIN, help="累積 Delta 門檻(預設 300)")
+    ap.add_argument("--consist", type=float, default=SC.CONSIST, help="同號分鐘佔比下限(預設 0.65)")
+    ap.add_argument("--dead-pts", type=float, default=SC.DEAD_PTS, help="價格死區點數(預設 10)")
+    ap.add_argument("--no-flip", action="store_true", help="不翻轉方向(回到「吸收=反轉」)")
     a = ap.parse_args()
 
     bars = TO.load_bars(a.db)
@@ -65,7 +70,7 @@ def main():
     now = int(dt.datetime.now().timestamp())
     lo, hi = now - a.days * 86400, now
     minutes = OW.read_minutes(lo, hi)
-    fires, nearmiss, stats = SC.scan(minutes)
+    fires, nearmiss, stats = SC.scan(minutes, flow_min=a.flow_min, consist=a.consist, dead_pts=a.dead_pts, flip=not a.no_flip)
     eps = episodes(fires)
 
     rows = []
@@ -85,6 +90,7 @@ def main():
     be = (a.X + a.cost) / (2 * a.X)
     print("═" * 80)
     print(f"累積吸收回測 · ±{a.X:g} 點 / 最多 {a.hold} 分鐘 / 來回成本 {a.cost:g} 點 → 損益兩平命中率 {be * 100:.1f}%")
+    print(f"訊號門檻:FLOW_MIN={a.flow_min:g} / CONSIST={a.consist:g} / DEAD_PTS={a.dead_pts:g} / 方向{'翻轉(延續假設)' if not a.no_flip else '不翻轉(吸收=反轉)'}")
     print(f"掃描範圍(台北){dt.datetime.fromtimestamp(lo, TW):%m-%d %H:%M} ~ {dt.datetime.fromtimestamp(hi, TW):%m-%d %H:%M}")
     print(f"1 分 K {len(bars)} 根(紐約 {dt.datetime.fromtimestamp(bt[0], NY):%m-%d} ~ {dt.datetime.fromtimestamp(bt[-1], NY):%m-%d})")
     print(f"每分鐘有資料 {stats['n_min']} 分鐘;亮訊號分鐘 {stats['n_fire']}、併成 {len(eps)} 段;時段過濾+可判定後 {len(rows)} 段")

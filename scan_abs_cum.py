@@ -3,7 +3,7 @@
 
 前端「累積吸收」分頁(web/app.js `buildAbsorbCum`)是純前端算、沒有落地紀錄,要回頭查
 「哪天幾點亮過、亮得對不對」,就用這支掃存檔重算一遍。門檻跟前端一致:
-  W=30 分 / FLOW_MIN=500 口 / FLOW_REF=1200 / DEAD_PTS=10 點 / CONSIST=0.65。
+  W=30 分 / FLOW_MIN=300 口 / FLOW_REF=1200 / DEAD_PTS=10 點 / CONSIST=0.65,方向預設翻轉(延續假設)。
 
 差異提醒(近似,不是 bug):前端「價格變動」用的是 1 分 K 收盤(bars_process 抓 IBKR),
 這裡只有 Bridge 現價(spot),兩者可能差 1~3 點;所以「何時亮、亮綠還亮紅」會一致,
@@ -29,10 +29,11 @@ TW = ZoneInfo("Asia/Taipei")
 import orderflow_window as OW
 
 W = 30          # 滾動窗口(分鐘)
-FLOW_MIN = 500  # 窗口累積 Delta 至少 ±500 口
+FLOW_MIN = 300  # 窗口累積 Delta 至少 ±300 口(2026-11-04 從 500 放寬,讓訊號多一點)
 FLOW_REF = 1200 # 強度滿格刻度
 DEAD_PTS = 10   # 價格死區(點)
 CONSIST = 0.65  # 單邊一致性:同號分鐘佔比下限
+FLIP = True     # 方向翻轉(延續假設):累積賣壓→看空、累積買壓→看多。15 段 80% 走反的 post-hoc 假設,未驗證
 
 
 def _fnum(v):
@@ -42,11 +43,11 @@ def _fnum(v):
         return None
 
 
-def scan(minutes):
+def scan(minutes, w=W, flow_min=FLOW_MIN, flow_ref=FLOW_REF, dead_pts=DEAD_PTS, consist=CONSIST, flip=FLIP):
     """輸入 read_minutes() 的結果(未排序也可),回傳 (fires, nearmiss, stats)。
 
     fires / nearmiss 都是 list of dict:time(epoch 秒)、cum、move、consist、dir、strength、why。
-    stats 是 {n_min, n_fire, n_near}。
+    stats 是 {n_min, n_fire, n_near}。門檻可覆寫(回測想試不同鬆緊度用)。
     """
     # 整理成 (t, delta, spot),delta 為 None 的照前端「整分鐘跳過」。
     ms = []
@@ -65,7 +66,7 @@ def scan(minutes):
     for i, (t, d, s) in enumerate(ms):
         if s is None:
             continue  # 沒有現價,算不了價格變動,跳過(前端這格沒 bar close 也會跳)
-        w0 = t - W * 60
+        w0 = t - w * 60
         while a < len(ms) and ms[a][0] < w0:
             a += 1
         # 窗口起點現價:窗口內第一個有 spot 的分鐘
@@ -90,19 +91,24 @@ def scan(minutes):
         if n == 0:
             continue
         move = s - s0
-        consist = (neg / n) if cum < 0 else (pos / n) if cum > 0 else 0.0
-        rec = {"t": t, "cum": cum, "move": move, "consist": consist, "spot": s}
+        frac = (neg / n) if cum < 0 else (pos / n) if cum > 0 else 0.0
+        rec = {"t": t, "cum": cum, "move": move, "consist": frac, "spot": s}
 
-        if cum <= -FLOW_MIN and move > -DEAD_PTS and neg / n >= CONSIST:
-            rec.update(dir="看多", strength=min(1.0, -cum / FLOW_REF))
-            fires.append(rec)
-        elif cum >= FLOW_MIN and move < DEAD_PTS and pos / n >= CONSIST:
-            rec.update(dir="看空", strength=-min(1.0, cum / FLOW_REF))
-            fires.append(rec)
-        elif (cum <= -FLOW_MIN and move > -DEAD_PTS) or (cum >= FLOW_MIN and move < DEAD_PTS):
+        if cum <= -flow_min and move > -dead_pts and neg / n >= consist:
+            rec.update(dir="看多", strength=min(1.0, -cum / flow_ref))
+        elif cum >= flow_min and move < dead_pts and pos / n >= consist:
+            rec.update(dir="看空", strength=-min(1.0, cum / flow_ref))
+        elif (cum <= -flow_min and move > -dead_pts) or (cum >= flow_min and move < dead_pts):
             # 舊規則(不含一致性)會亮,但同號佔比不足被擋掉 → 近失誤(看是不是太嚴)
             rec.update(dir="—", strength=0.0, why="同號佔比不足")
             nearmiss.append(rec)
+            continue
+        else:
+            continue
+        if flip:
+            rec["dir"] = "看空" if rec["dir"] == "看多" else "看多"
+            rec["strength"] = -rec["strength"]
+        fires.append(rec)
     return fires, nearmiss, {"n_min": len(ms), "n_fire": len(fires), "n_near": len(nearmiss)}
 
 
@@ -157,7 +163,7 @@ def main():
         print(f"  {_tw(r['t']):<16} {r['cum']:>+9.0f} {r['move']:>+9.1f} {r['consist'] * 100:>5.0f}% {r['dir']:<6} {r['strength']:>+7.2f}")
 
     if args.show == "all" and nearmiss:
-        print("  ── 近失誤(累積≥500 且價格變動≤10,但被「同號≥65%」擋掉)──")
+        print("  ── 近失誤(累積≥300 且價格變動≤10,但被「同號≥65%」擋掉)──")
         for r in nearmiss:
             print(f"  {_tw(r['t']):<16} {r['cum']:>+9.0f} {r['move']:>+9.1f} {r['consist'] * 100:>5.0f}%  (擋掉:{r['why']})")
 
