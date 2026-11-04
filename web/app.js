@@ -1131,10 +1131,13 @@ function buildAbsorbCum() {
   // 累積買壓(cum ≥ +FLOW_MIN)但價格沒漲(move < +DEAD_PTS)→ 看不見的賣盤在扛,看空(紅,負)。
   // 強度 = min(1, |cum| / FLOW_REF)。跟每分鐘版「吸收背離」不同:這裡看的是「整段窗口的累積淨量」,
   // 所以能抓「小單一直補、單分鐘 r 都很小」的暗流;代價是窗口越長越鈍。門檻全是初始值、未驗證。
+  // 另加「單邊一致性」:窗口內同號分鐘數要 ≥ CONSIST。沒有這條時,「先崩後拉」的 V 型反轉會混在同一個
+  // 窗口(淨量雖大、方向卻不純),被誤判成吸收(真資料 11-04 00:50~00:56 的誤判就是這種)。
   const W = 30;          // 滾動窗口(分鐘)
   const FLOW_MIN = 500;  // 窗口累積 Delta 至少 ±500 口才算「持續單邊」
   const FLOW_REF = 1200; // 強度滿格刻度:|累積 Delta| 到 1200 = 100%
   const DEAD_PTS = 10;   // 價格死區(點):往攻擊方向移動 ≤10 點視為「被吸住」
+  const CONSIST = 0.65;  // 單邊一致性:窗口內同號分鐘佔比下限(排除 V 型反轉混雜;未驗證)
   const R = D.sq;
   if (!R || !R.rows.length || !D.barT.length) return [];
   const out = [];
@@ -1151,17 +1154,20 @@ function buildAbsorbCum() {
     const bar0 = j0 >= 0 ? D.bars[j0] : null;
     const bar1 = D.bars[i];
     if (!bar0 || !bar1 || bar0.close == null || bar1.close == null) { out.push({ time: t, value: 0 }); continue; }
-    let cum = 0;
+    let cum = 0, neg = 0, pos = 0, n = 0;
     for (let k = a; k <= bEnd; k++) {
       const row = R.rows[k];
       if (!row) continue;
       const d = row[1];
-      if (d != null && isFinite(d)) cum += d;
+      if (d == null || !isFinite(d)) continue;
+      cum += d;
+      if (d < 0) neg++; else if (d > 0) pos++;
+      n++;
     }
     const move = bar1.close - bar0.close;
     let v = 0;
-    if (cum <= -FLOW_MIN && move > -DEAD_PTS) v = Math.min(1, -cum / FLOW_REF);        // 累積賣壓、價格沒跌 → 看多
-    else if (cum >= FLOW_MIN && move < DEAD_PTS) v = -Math.min(1, cum / FLOW_REF);     // 累積買壓、價格沒漲 → 看空
+    if (cum <= -FLOW_MIN && move > -DEAD_PTS && neg / n >= CONSIST) v = Math.min(1, -cum / FLOW_REF);        // 累積賣壓、價格沒跌 → 看多
+    else if (cum >= FLOW_MIN && move < DEAD_PTS && pos / n >= CONSIST) v = -Math.min(1, cum / FLOW_REF);     // 累積買壓、價格沒漲 → 看空
     out.push({ time: t, value: +v.toFixed(3) });
   }
   return out;
@@ -1189,7 +1195,7 @@ function applySq() {
   if (cu) {
     flowCum.setData([]); spdSeries.setData([]); absSeries.setData([]);
     cumAbsSeries.setData(buildAbsorbCum());
-    $('#subtitle').textContent = '累積吸收 · 綠(0上)=近30分累積賣壓≥500口但價格沒跌(看多暗流)· 紅(0下)=累積買壓但價格沒漲(看空)· 強度=累積Δ/1200 · 實際成交 · 未驗證';
+    $('#subtitle').textContent = '累積吸收 · 綠(0上)=近30分持續賣壓(≥500口、同號≥65%)但價格沒跌(看多暗流)· 紅(0下)=持續買壓但價格沒漲(看空)· 強度=累積Δ/1200 · 實際成交 · 未驗證';
     return;
   }
   if (!sq) { flowCum.setData([]); spdSeries.setData([]); absSeries.setData([]); cumAbsSeries.setData([]); applyNet(); return; }
