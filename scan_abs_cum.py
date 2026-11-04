@@ -91,7 +91,7 @@ def scan(minutes):
             continue
         move = s - s0
         consist = (neg / n) if cum < 0 else (pos / n) if cum > 0 else 0.0
-        rec = {"t": t, "cum": cum, "move": move, "consist": consist}
+        rec = {"t": t, "cum": cum, "move": move, "consist": consist, "spot": s}
 
         if cum <= -FLOW_MIN and move > -DEAD_PTS and neg / n >= CONSIST:
             rec.update(dir="看多", strength=min(1.0, -cum / FLOW_REF))
