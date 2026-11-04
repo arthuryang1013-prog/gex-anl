@@ -150,10 +150,12 @@ def main():
     if not minutes:
         print("  這段沒有訂單流資料。可能:日期不對、Bookmap 沒在送、或早於長期存檔開始日(分鐘存檔自 2026-10-27 起)。")
     else:
-        print(f"  {'時間':<14} {'Delta實際':>9} {'成交量':>8} {'現價BM':>10} {'累積Delta':>10} {'r=Δ/量':>8}")
+        print(f"  {'時間':<13} {'Delta實':>7} {'成交量':>7} {'淨補單':>7} {'失衡':>6} {'現價BM':>10} {'累積Δ':>8} {'r':>7}")
         cum = 0.0
         spots = []
         n_tr = n_mbo = 0
+        t_stack_bid = t_stack_ask = t_pull_bid = t_pull_ask = t_big_vol = t_vol = 0.0
+        imbs = []
         for m in minutes:
             tr = m.get("delta_tr")
             use_tr = tr is not None
@@ -167,25 +169,49 @@ def main():
             if d is not None:
                 cum += d
             r = (d / v) if (d is not None and v) else None
+            sb = _fnum(m.get("stack_bid")); sa = _fnum(m.get("stack_ask"))
+            ns = (sb - sa) if (sb is not None and sa is not None) else None
+            if sb is not None: t_stack_bid += sb
+            if sa is not None: t_stack_ask += sa
+            pb = _fnum(m.get("pull_bid")); pa = _fnum(m.get("pull_ask"))
+            if pb is not None: t_pull_bid += pb
+            if pa is not None: t_pull_ask += pa
+            ib = _fnum(m.get("imb"))
+            if ib is not None: imbs.append(ib)
+            bv = _fnum(m.get("big_vol"))
+            if bv is not None: t_big_vol += bv
+            if v is not None: t_vol += v
             sm = _fnum(m.get("spot"))
             if sm is not None:
                 spots.append(sm)
             ds = f"{d:+.1f}" if d is not None else "—"
             vs = f"{v:.0f}" if v is not None else "—"
+            nss = f"{ns:+.1f}" if ns is not None else "—"
+            ibs = f"{ib:+.2f}" if ib is not None else "—"
             cs = f"{cum:+.1f}"
             ss = f"{sm:,.2f}" if sm is not None else "—"
             rs = f"{r:+.3f}" if r is not None else "—"
-            print(f"  {tw(m['t']):<14} {ds:>9} {vs:>8} {ss:>10} {cs:>10} {rs:>8}")
+            print(f"  {tw(m['t']):<13} {ds:>7} {vs:>7} {nss:>7} {ibs:>6} {ss:>10} {cs:>8} {rs:>7}")
         print("─" * 72)
         print(f"  合計淨量(累積 Delta){cum:+.1f} 口 → {'淨買(偏多累積)' if cum >= 0 else '淨賣(偏空累積)'}")
         if spots:
             print(f"  現價(Bridge)這段最高 {max(spots):,.2f} / 最低 {min(spots):,.2f} → 振幅 {max(spots) - min(spots):.1f} 點")
         print(f"  資料來源:實際成交(tr){n_tr} 分鐘、退回 MBO {n_mbo} 分鐘(後者可信度較低)")
+        print("  ── 掛單簿 / 補單(「小量一直補」的暗流證據)──")
+        print(f"  近價補單:買 {t_stack_bid:.0f} / 賣 {t_stack_ask:.0f} → 淨補單 {t_stack_bid - t_stack_ask:+.0f} 口(正 = 買方一直補)")
+        print(f"  近價撤單:買 {t_pull_bid:.0f} / 賣 {t_pull_ask:.0f}")
+        avg_imb = (sum(imbs) / len(imbs)) if imbs else None
+        print(f"  平均掛單失衡 imb:{avg_imb:+.2f} (正 = 買方掛單厚)" if avg_imb is not None else "  平均掛單失衡 imb:—")
+        if t_vol > 0:
+            share = t_big_vol / t_vol
+            verdict = "很小(符合「看不到大單」的小量暗流)" if share < 0.1 else "不低,可能不是純小量暗流"
+            print(f"  大單量合計 {t_big_vol:.0f} 口,佔總成交 {share * 100:.0f}% → {verdict}")
         big_r = [abs((_fnum(m.get('delta_tr') if m.get('delta_tr') is not None else m.get('delta')) or 0) / (_fnum(m.get('vol_tr') if m.get('vol_tr') is not None else m.get('vol')) or 1))
                  for m in minutes if _fnum(m.get('vol_tr') if m.get('vol_tr') is not None else m.get('vol'))]
         if big_r:
             over = sum(1 for x in big_r if x >= 0.05)
-            print(f"  r 的 |絕對值| ≥ 0.05(我前端那條線的門檻)的分鐘數:{over}/{len(big_r)} → 若幾乎全 <0.05,那條線整段靜默是正常的")
+            print(f"  r 的 |絕對值| ≥ 0.05(前端吸收背離的門檻)的分鐘數:{over}/{len(big_r)} → 若幾乎全 <0.05,那條線整段靜默是正常的")
+        print("  讀法:淨補單買方持續為正 + 累積 Delta 偏負 + 現價振幅小 + 大單佔比低 = 「小量一直補、價格下不去」的看多暗流(反之亦然)。")
 
     print("\n【事件】")
     if not events:
