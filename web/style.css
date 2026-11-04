@@ -551,3 +551,42 @@ button.mkey:hover{border-color:var(--blue);color:var(--text)}
 .feLegend i.ci{border-radius:50%}.feLegend i.sw{border:0;border-left:3px solid #8b97a8;border-radius:0;width:12px}
 .feLegend em{font-style:normal;color:var(--dim)}
 .feLegend .feOpt{pointer-events:auto;display:inline-flex;align-items:center;gap:4px}.feLegend select{background:#141b27;color:var(--muted);border:1px solid #2a3547;border-radius:5px;font:inherit;padding:1px 3px}.feLegend .feM{margin-left:2px}
+
+/* ---------- 對沖模擬頁(hedge.js) ---------- */
+.hg-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:10px 18px;border-bottom:1px solid var(--line);background:var(--bg2)}
+.hg-badge{padding:2px 9px;border-radius:999px;font-size:11.5px;background:var(--panel);border:1px solid var(--line2);color:var(--muted)}
+.hg-badge.live{color:#0a0d12;background:var(--up);border-color:transparent;font-weight:650}
+.hg-clock{font-family:var(--mono);color:var(--text)}
+.hg-ctl{display:inline-flex;gap:6px;align-items:center}
+.hg-body{flex:1;min-height:0;display:grid;grid-template-columns:minmax(380px,1.05fr) minmax(420px,1.3fr) minmax(320px,1fr);gap:12px;padding:12px 14px;overflow:hidden}
+.hg-col{min-height:0;overflow:auto;display:flex;flex-direction:column;gap:10px;padding-right:2px}
+.hg-card{background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.hg-card h4{margin:0 0 8px;font-size:13px;font-weight:650}
+.hg-card h4 small{margin-left:8px;font-weight:400;color:var(--dim);font-size:11.5px}
+.hg-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:6px 0}
+.hg-f{display:inline-flex;align-items:center;gap:5px;color:var(--muted);font-size:12px}
+.hg-f input[type=number],.hg-f select{background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:3px 6px;color:var(--text);width:80px}
+.hg-f select{width:auto}
+.hg-hint{color:var(--dim);font-size:11.5px}
+.hg-go{background:rgba(231,164,76,.16);border:1px solid rgba(231,164,76,.45);color:var(--amber);border-radius:8px;padding:5px 13px;font-weight:600}
+.hg-go:hover{background:rgba(231,164,76,.26)}
+.hg-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.hg-kpi{background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:8px 11px}
+.hg-kpi .k{color:var(--dim);font-size:11px}.hg-kpi .v{font-family:var(--mono);font-size:17px;margin-top:2px}.hg-kpi .s{color:var(--muted);font-size:11px;margin-top:2px}
+.hg-up{color:var(--up)}.hg-dn{color:var(--dn)}
+.hg-tablewrap{overflow:auto;max-height:230px}.hg-tablewrap.tall{max-height:340px}
+.hg-t{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums}
+.hg-t th{color:var(--dim);font-weight:500;text-align:right;padding:3px 6px;position:sticky;top:0;background:var(--bg2)}
+.hg-t td{padding:3px 6px;text-align:right;border-top:1px solid var(--line);white-space:nowrap}
+.hg-t th:first-child,.hg-t td:first-child{text-align:left}
+.hg-chainwrap{max-height:250px;overflow:auto;border:1px solid var(--line);border-radius:8px}
+#hgChain td.px{cursor:pointer}#hgChain td.px:hover{background:rgba(125,155,217,.18)}
+#hgChain tr.atm td{background:rgba(231,164,76,.08)}#hgChain td.k{text-align:center;color:var(--text);font-weight:600}
+.hg-leg{display:flex;align-items:center;gap:8px;margin:4px 0;font-size:12px}
+.hg-leg button{padding:2px 8px}.hg-leg .buy{color:var(--up)}.hg-leg .sell{color:var(--dn)}
+.hg-chart{height:210px;border:1px solid var(--line);border-radius:8px;background:#0b0f16}.hg-chart.sm{height:150px}
+.hg-legend{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}
+.hg-legend button{background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:2px 9px;color:var(--muted);font-size:11.5px}
+.hg-legend button.on{color:var(--text)}.hg-legend i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px}
+.hg-help p{margin:6px 0;color:var(--muted);line-height:1.6}.hg-help summary{cursor:pointer;font-weight:600}
+@media (max-width:1250px){.hg-body{grid-template-columns:1fr;overflow:auto}.hg-col{overflow:visible}}

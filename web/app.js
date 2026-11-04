@@ -2037,6 +2037,8 @@ $('#tabs').addEventListener('click', (e) => {
   $('#view-anly').classList.toggle('hidden', b.dataset.tab !== 'anly');
   $('#view-mentor').classList.toggle('hidden', b.dataset.tab !== 'mentor');
   $('#view-review').classList.toggle('hidden', b.dataset.tab !== 'review');
+  $('#view-hedge').classList.toggle('hidden', b.dataset.tab !== 'hedge');
+  if (window.hedgeTab) window.hedgeTab(b.dataset.tab === 'hedge');
   if (b.dataset.tab === 'table') { renderTable(); loadFlow(); }
   if (b.dataset.tab === 'anly') { anlyVis(); anlyMeta(); loadAnalysis(); setTimeout(fitAnly, 60); }
   if (b.dataset.tab === 'mentor') loadThesis();

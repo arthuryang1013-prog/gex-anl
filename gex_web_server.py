@@ -2843,6 +2843,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._redirect("/login")
         if u.path.startswith("/api/"):
             name = u.path[5:]
+            if name.startswith("hedge_"):
+                return self._hedge_dispatch(name, None, {k: v[0] for k, v in parse_qs(u.query).items()})
             fn = ROUTES.get(name)
             if not fn:
                 return self._send(404, b'{"error":"unknown"}', "application/json")
@@ -2874,8 +2876,50 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             _log_error(self.path, e)
 
+    def _hedge_api(self):
+        srv = self.server
+        if getattr(srv, "hedge", None) is None:
+            import hedge_api
+            srv.hedge = hedge_api.HedgeApi(srv.db_path, os.path.join(os.path.dirname(os.path.abspath(srv.db_path)), "hedge_sim.sqlite"))
+        return srv.hedge
+
+    def _hedge_dispatch(self, name, body, q):
+        """對沖模擬 API:GET 用 name,POST 用 body。使用者輸入錯誤回 400,其餘回 500 並寫進錯誤紀錄。"""
+        import hedge_sim
+        try:
+            api = self._hedge_api()
+            out = api.get(name, q) if body is None else api.post(name, body)
+            return self._send(200, json.dumps(clean(out), separators=(",", ":")).encode(), "application/json")
+        except hedge_sim.SimError as e:
+            return self._send(400, json.dumps({"error": str(e)}, ensure_ascii=False).encode(), "application/json")
+        except (BrokenPipeError, ConnectionResetError):
+            return
+        except Exception as e:
+            _log_error(self.path, e)
+            return self._send(500, json.dumps({"error": f"{type(e).__name__}: {e}"}).encode(), "application/json")
+
+    def _hedge_post(self, action):
+        """需要登入(有設定帳密時)、Content-Type 必須是 application/json、Origin 若有帶必須同站(擋跨站偽造請求)。"""
+        if not self._authed():
+            return self._send(401, b'{"error":"unauthorized"}', "application/json")
+        if "application/json" not in (self.headers.get("Content-Type") or "").lower():
+            return self._send(415, b'{"error":"json only"}', "application/json")
+        origin = self.headers.get("Origin")
+        if origin and urlparse(origin).netloc != (self.headers.get("Host") or ""):
+            return self._send(403, b'{"error":"cross-site"}', "application/json")
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+            if n > 200_000:
+                return self._send(413, b'{"error":"too large"}', "application/json")
+            body = json.loads((self.rfile.read(n) if n else b"{}").decode("utf-8") or "{}")
+        except Exception:
+            return self._send(400, b'{"error":"bad json"}', "application/json")
+        return self._hedge_dispatch(action, body, {})
+
     def do_POST(self):
         u = urlparse(self.path)
+        if u.path.startswith("/api/hedge/"):
+            return self._hedge_post(u.path[len("/api/hedge/"):])
         if u.path != "/api/login":
             return self._send(405, b'{"error":"method not allowed"}', "application/json")
         try:
