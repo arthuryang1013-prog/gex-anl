@@ -56,6 +56,7 @@ def main():
     ap.add_argument("--cost", type=float, default=2.0, help="來回成本(點)")
     ap.add_argument("--all-hours", action="store_true")
     ap.add_argument("--show", choices=["sum", "all"], default="sum")
+    ap.add_argument("--w", type=float, default=SC.W, help="滾動窗口分鐘(預設 30)")
     ap.add_argument("--flow-min", type=float, default=SC.FLOW_MIN, help="累積 Delta 門檻(預設 300)")
     ap.add_argument("--consist", type=float, default=SC.CONSIST, help="同號分鐘佔比下限(預設 0.65)")
     ap.add_argument("--dead-pts", type=float, default=SC.DEAD_PTS, help="價格死區點數(預設 10)")
@@ -70,7 +71,7 @@ def main():
     now = int(dt.datetime.now().timestamp())
     lo, hi = now - a.days * 86400, now
     minutes = OW.read_minutes(lo, hi)
-    fires, nearmiss, stats = SC.scan(minutes, flow_min=a.flow_min, consist=a.consist, dead_pts=a.dead_pts, flip=not a.no_flip)
+    fires, nearmiss, stats = SC.scan(minutes, w=a.w, flow_min=a.flow_min, consist=a.consist, dead_pts=a.dead_pts, flip=not a.no_flip)
     eps = episodes(fires)
 
     rows = []
@@ -90,7 +91,7 @@ def main():
     be = (a.X + a.cost) / (2 * a.X)
     print("═" * 80)
     print(f"累積吸收回測 · ±{a.X:g} 點 / 最多 {a.hold} 分鐘 / 來回成本 {a.cost:g} 點 → 損益兩平命中率 {be * 100:.1f}%")
-    print(f"訊號門檻:FLOW_MIN={a.flow_min:g} / CONSIST={a.consist:g} / DEAD_PTS={a.dead_pts:g} / 方向{'翻轉(延續假設)' if not a.no_flip else '不翻轉(吸收=反轉)'}")
+    print(f"訊號門檻:W={a.w:g}分 / FLOW_MIN={a.flow_min:g} / CONSIST={a.consist:g} / DEAD_PTS={a.dead_pts:g} / 方向{'翻轉(延續假設)' if not a.no_flip else '不翻轉(吸收=反轉)'}")
     print(f"掃描範圍(台北){dt.datetime.fromtimestamp(lo, TW):%m-%d %H:%M} ~ {dt.datetime.fromtimestamp(hi, TW):%m-%d %H:%M}")
     print(f"1 分 K {len(bars)} 根(紐約 {dt.datetime.fromtimestamp(bt[0], NY):%m-%d} ~ {dt.datetime.fromtimestamp(bt[-1], NY):%m-%d})")
     print(f"每分鐘有資料 {stats['n_min']} 分鐘;亮訊號分鐘 {stats['n_fire']}、併成 {len(eps)} 段;時段過濾+可判定後 {len(rows)} 段")

@@ -124,6 +124,7 @@ def main():
     ap.add_argument("--lo", type=int, default=None, help="直接給 epoch 秒(UTC),覆蓋上面選項")
     ap.add_argument("--hi", type=int, default=None, help="直接給 epoch 秒(UTC),覆蓋上面選項")
     ap.add_argument("--show", choices=["fire", "all"], default="fire", help="fire=只印亮訊號;all=連近失誤也印")
+    ap.add_argument("--w", type=float, default=W, help="滾動窗口分鐘(預設 30)")
     args = ap.parse_args()
 
     if args.lo is not None and args.hi is not None:
@@ -147,7 +148,7 @@ def main():
         raise SystemExit("起 > 訖,檢查一下時間順序。(跨午夜請用 --lo/--hi epoch 秒)")
 
     minutes = OW.read_minutes(lo, hi)
-    fires, nearmiss, stats = scan(minutes)
+    fires, nearmiss, stats = scan(minutes, w=args.w)
 
     print("═" * 80)
     print(f"累積吸收掃描 · {_tw(lo)} ~ {_tw(hi)}(台北)· 共 {stats['n_min']} 分鐘有資料")
