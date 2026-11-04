@@ -118,7 +118,7 @@ def episodes(fires, gap_sec=120):
         if eps and f["dir"] == eps[-1]["dir"] and f["t"] - eps[-1]["end"] <= gap_sec:
             eps[-1]["end"] = f["t"]
             continue
-        eps.append({"t": f["t"], "dir": f["dir"], "spot": f["spot"], "strength": f["strength"], "end": f["t"]})
+        eps.append({"t": f["t"], "dir": f["dir"], "spot": f["spot"], "strength": f["strength"], "r": f["r"], "end": f["t"]})
     return eps
 
 
