@@ -18,6 +18,38 @@
 
 ---
 
+## 2026-11-05(台北)· 熱圖大單加「價內外」標籤,popup 併排訂單流粗讀
+
+**畫面上看到什麼不同**
+- 點熱圖上的選擇權大單(大量成交)時,卡片頂端多一顆色標「價內 / 價平 / 價外 / 深度價外」(灰 / 琥珀 / 藍 / 紫)。
+- 卡片內容多一列「價內外 → 價外 128 點」(離現貨多遠、價外/價內);卡片底部多一段白話:「價內外 深度價外:gamma 小但 0DTE 槓桿高…」,以及「訂單流:大單這 5 分鐘期貨實際成交淨量 +X 口(淨買);之後 5 分鐘 -Y 口(淨賣)。附近另有 2 掃單、1 吸收。」
+- 事件抽屜(左側列表)每筆副標多了一個價內外分類。
+- 已重開的舊事件(歷史回放)同樣看得到;「之後 5 分鐘」對剛發生的即時大單還沒資料,會自動省略那一句。
+
+**改了哪裡**
+- `gex_web_server.py`:`_surge_frame` 的 SELECT 改 JOIN `snapshots`,把 `spot` 帶進來當 `nq_spot`;新增 `_money_bucket()`(門檻常數 `MONEY_ITM=-15` / `MONEY_ATM=15` / `MONEY_OTM=100`,NQ 點,初始值);`api_events` 的事件 dict 新增 `money`、`m`(價外點數,正=價外、負=價內);新增 `_flow_context()` 讀訂單流分鐘(`delta_tr`)+事件,替事件附 `flow`(dur/dur_n/aft/aft_n/ev),整段 try/except,讀不到就 `flow=None`。
+- `web/app.js`:新增 `MONEY` 對照表與 `moneyOf/moneyText/moneyChip/flowLine`;`evBody` 加「價內外」列;`showEvCard` 加色標與論述區;`renderDrawer` 副標加價內外。
+- API 欄位:`/api/events` 的 surge 事件新增 `money`、`m`、`flow`(純新增,既有欄位不變)。
+
+**為什麼改**:使用者想把熱圖大單依價內/價外/深度價外分類,並把大單跟訂單流串起來在 popup 快速看。價內外理論依據是 gamma/delta 隨價內外變化(價平 gamma 最大、價內 delta≈1、深度價外 0DTE gamma-flip),「對期貨的影響」是推論。**AI 論述做在懸停 popup 不可行**(懸停要即時,導師有 45 秒冷卻 + 上萬 token 成本),所以用程式固定模板「粗讀」。
+
+**怎麼操作 / 還原**
+- 價內外門檻:`gex_web_server.py` 開頭附近 `MONEY_ITM/MONEY_ATM/MONEY_OTM`。
+- 顏色與那句意義:`web/app.js` 的 `MONEY` 對照表。
+- 訂單流併排:`_flow_context`(server)與 `flowLine`(前端)。
+- 還原:`git revert` 該 commit。或手動:把 `_surge_frame` 的 SELECT 改回不 JOIN、`api_events` 的 `money/m/flow` 三欄與 `_flow_context` 拿掉,前端 `MONEY` 與 `showEvCard` 的 chip/note、`evBody` 那列、`renderDrawer` 副標拿掉。
+
+**只影響畫面,還是也影響資料**:大單偵測門檻、存檔、bridge、receiver 都沒動。`/api/events` 多回傳三個欄位(money/m/flow,純顯示用);`_flow_context` 只讀訂單流存檔、不寫。
+
+**驗證了什麼、沒驗證什麼**:`python3 -m py_compile gex_web_server.py`、`node --check web/app.js` 通過;新增 `tests/test_surge_money.py`(合成兩張快照觸發一次 surge,驗證價內外分類、JOIN 帶出 spot、flow 的 delta_tr 加總與附近事件數,跑過 OK)。**只證明邏輯;真實畫面(色標/文字排版)、真實 VPS 資料量級、QQQ/NDX 換算成 NQ 座標後價內外是否合理,都沒看過。**
+
+**已知限制**
+- 價內外門檻(±15 / 100 NQ 點)是初始值、未驗證;QQQ/NDX 履約價先換算成 NQ 座標再比 NQ 現貨,忽略基差變動。
+- 訂單流併排是「程式粗讀、非 AI」,只量關聯;成交量沒有買賣方向,不能推因果;`delta_tr` 仍未跟 Bookmap 原生 CVD 對過。
+- 每事件 AI 論述不可行(冷卻/成本),所以用固定模板。
+
+---
+
 ## 2026-11-04 22:10(台北)· 新增「對沖模擬」分頁(NQ 選擇權 + NQ/MNQ 期貨對沖的紙上交易)· patch AR · commit 標題「對沖模擬頁」
 
 **畫面上看到什麼不同**

@@ -2174,6 +2174,12 @@ function renderBook() {
 
 /* ------------------------------ events ------------------------------ */
 const EV_NAME = { surge: '大量成交' };
+const MONEY = {   // 價內外標籤:顏色 + 一句簡短意義(意義為 delta/gamma 的標準性質,「對期貨的影響」是推論)
+  '價內':   { c: '#8b95a7', d: 'delta 接近 1、gamma 很小 → 行為接近直接持倉期貨,莊家對沖量少。' },
+  '價平':   { c: '#e7a44c', d: 'gamma 最大 → 每口大單觸發的莊家對沖最頻繁,理論上對期貨拖動最強。' },
+  '價外':   { c: '#6ea8fe', d: 'gamma 中等,現價逼近履約價時莊家對沖才會明顯放大。' },
+  '深度價外': { c: '#b197fc', d: 'gamma 小但 0DTE 槓桿高,現價逼近時 delta 快速翻動(gamma-flip 區),對沖可能突然爆發。' },
+};
 const KIND_NAME = { call: 'Call 牆', put: 'Put 牆', flip: 'Flip' };
 const evColor = (e) => SRC_COL[e.src];
 const evGlyph = (e) => (e.cp === 'C' ? 'C' : 'P');   // 標 Call / Put(買賣方向沒有,只標是哪一種選擇權)
@@ -2406,6 +2412,35 @@ async function loadFlowEvents() {
   flowEvPrim.redraw(); updateFeLegend();
 }
 const fmtTime = (t) => `台北 ${hmIn(t, 'Asia/Taipei')} · 紐約 ${hmIn(t, 'America/New_York')} · ${md(t)}`;
+const moneyOf = (e) => (e.money ? MONEY[e.money] : null);
+function moneyText(e) {
+  if (!e.money) return '—';
+  if (e.m == null || e.m === 0) return e.money;
+  const side = e.m > 0 ? '價外' : '價內';
+  return `${side} ${Math.abs(e.m)} 點`;
+}
+function moneyChip(e) {
+  const mo = moneyOf(e);
+  return mo ? `<span class="chip" style="margin-left:6px;background:${mo.c}22;color:${mo.c};border:1px solid ${mo.c}66">${e.money}</span>` : '';
+}
+const FE_N = { sweep: '掃單', stop: '停損', absorb: '吸收', iceberg: '冰山', exhaust: '力竭' };
+function flowLine(e) {
+  const f = e.flow;
+  if (!f) return '<div style="margin:2px 0;font-size:12px;color:var(--dim)">訂單流:此時間點無資料(或早於 bridge 上線)。</div>';
+  const bits = [];
+  if (f.dur_n >= 3) {
+    const s = f.dur > 0 ? '淨買' : f.dur < 0 ? '淨賣' : '持平';
+    bits.push(`大單這 5 分鐘期貨實際成交淨量 <b>${f0.format(f.dur)}</b> 口(${s})`);
+  }
+  if (f.aft_n >= 3) {
+    const s = f.aft > 0 ? '淨買' : f.aft < 0 ? '淨賣' : '持平';
+    bits.push(`之後 5 分鐘 <b>${f0.format(f.aft)}</b> 口(${s})`);
+  }
+  const evs = [];
+  for (const k of Object.keys(FE_N)) if (f.ev && f.ev[k]) evs.push(`${f.ev[k]} ${FE_N[k]}`);
+  const body = bits.length ? bits.join(';') + '。' : '此 5 分鐘沒有可用 delta。';
+  return `<div style="margin:2px 0;font-size:12px;color:var(--dim)">訂單流:${body}${evs.length ? `附近另有 <b>${evs.join('、')}</b>。` : '附近無明顯訂單流事件。'}</div>`;
+}
 function evTitle(e) {
   const exp = fmtExp(e.expiry);
   const due = e.dte === 0 ? `0DTE · ${exp} 到期` : `${exp} 到期(${e.dte} 天後)`;
@@ -2418,6 +2453,7 @@ function evBody(e) {
   rows += row('到期', `${fmtExp(e.expiry)} · ${e.dte === 0 ? '0DTE(今天到期)' : e.dte + ' 天後到期'}`);
   rows += row('對應 NQ 點位', fP(e.price));
   if (bar) rows += row('當時 NQ', `${fP(bar.close)}(${fSigned(bar.close - e.price, 0)} 點)`);
+  rows += row('價內外', moneyText(e));
   rows += row(`近 ${Math.round(e.mins)} 分鐘新增成交`, `<b>${f0.format(e.dvol)}</b> 口`);
   rows += row('累計成交', `${f0.format(e.vol)} 口`);
   rows += row('占該來源同期新增', `${(e.share * 100).toFixed(1)}%`);
@@ -2429,8 +2465,15 @@ function evBody(e) {
 }
 function showEvCard(e, at) {
   const card = $('#evcard'), { rows, det } = evBody(e);
+  const mo = moneyOf(e);
+  const note = `<div style="border-top:1px solid var(--line);margin-top:6px;padding-top:5px">` +
+    (mo ? `<div style="margin:2px 0;font-size:12px;color:var(--dim)"><b style="color:${mo.c}">${e.money}</b>:${mo.d}</div>` : '') +
+    flowLine(e) +
+    `<div style="margin-top:3px;font-size:11px;color:var(--dim);opacity:.7">價內外與訂單流併排是程式粗讀、未驗證預測力;成交量無買賣方向,串連只是關聯不是因果。</div></div>`;
   card.innerHTML = `<button class="x" aria-label="關閉">×</button><span class="chip">NOTABLE ACTIVITY · ${EV_NAME[e.type]}</span>
+    ${moneyChip(e)}
     <h4>${evTitle(e)}</h4><div class="when">${fmtTime(e.t)}</div>${rows}
+    ${note}
     <button class="more">＋ 詳細說明</button><div class="det" hidden>${det}</div>`;
   card.hidden = false;
   $('.x', card).onclick = () => { card.hidden = true; };
@@ -2458,7 +2501,7 @@ function renderDrawer() {
   $$('#evFilter button').forEach((b) => b.classList.toggle('on', !!S.evTypes[b.dataset.v]));
   const list = visEvents().slice().reverse();
   $('#dlist').innerHTML = list.length ? list.map((e) => `<div class="it" data-id="${e.id}"><span class="ic" style="background:${evColor(e)}">${evGlyph(e)}</span>
-    <div><div class="tt">${evTitle(e)}</div><div class="ss">${md(e.t)} 台北 ${hmIn(e.t, 'Asia/Taipei')} · ${EV_NAME[e.type]}${e.type === 'surge' ? ` · +${f0.format(e.dvol)} 口` : ''}</div></div></div>`).join('')
+    <div><div class="tt">${evTitle(e)}</div><div class="ss">${md(e.t)} 台北 ${hmIn(e.t, 'Asia/Taipei')} · ${EV_NAME[e.type]}${e.type === 'surge' ? ` · +${f0.format(e.dvol)} 口` : ''}${e.money ? ' · ' + e.money : ''}</div></div></div>`).join('')
     : '<div class="sub" style="padding:14px">這個範圍內沒有特別情況。</div>';
   $$('#dlist .it').forEach((it) => { it.onclick = () => { $('#drawer').hidden = true; focusEvent(D.events.find((x) => x.id === it.dataset.id)); }; });
 }

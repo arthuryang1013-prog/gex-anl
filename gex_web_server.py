@@ -866,7 +866,118 @@ def api_book(con, q):
 
 # ----------------------------- notable activity (volume surges) -----------------------------
 def _surge_frame(con, ts):
-    return pd.read_sql("SELECT src, expiry, strike, cp, dte, strike_nq, vol, gex_vol, oi, mult FROM contracts WHERE ts = ?", con, params=(ts,))
+    return pd.read_sql("SELECT c.src, c.expiry, c.strike, c.cp, c.dte, c.strike_nq, c.vol, c.gex_vol, c.oi, c.mult, "
+                       "s.spot AS nq_spot FROM contracts c LEFT JOIN snapshots s ON s.ts = c.ts WHERE c.ts = ?", con, params=(ts,))
+
+
+# 價內外分類門檻(以 NQ 等效價 strike_nq 對 NQ 現貨 spot 的「價外點數」為準)。初始值、未驗證。
+MONEY_ITM = -15.0     # ≤ 此值 = 價內
+MONEY_ATM = 15.0      # ±此值內 = 價平
+MONEY_OTM = 100.0     # ≥ 此值 = 深度價外
+
+
+def _money_bucket(strike_nq, spot, cp):
+    """價內外分類。call:價外 = strike > spot;put 相反。回 (bucket, m);m = 價外點數(正=價外,負=價內)。
+    spot 缺(無快照)回 (None, None)。"""
+    try:
+        m = (float(strike_nq) - float(spot)) if cp == "C" else (float(spot) - float(strike_nq))
+    except (TypeError, ValueError):
+        return None, None
+    if m <= MONEY_ITM:
+        return "價內", int(round(m))
+    if m < MONEY_ATM:
+        return "價平", int(round(m))
+    if m < MONEY_OTM:
+        return "價外", int(round(m))
+    return "深度價外", int(round(m))
+
+
+def _flow_context(events):
+    """把選擇權大單與訂單流併排(程式粗讀,非 AI):每個事件附 flow 上下文,讓 popup 快速看「大單時/後期貨實際成交淨量
+    (delta_tr)與附近訂單流事件」。只讀不寫;任何錯誤或沒資料就留 flow=None,不影響事件本身。"""
+    if not events:
+        return
+    tmin = min(e["t"] for e in events) - 600
+    tmax = max(e["t"] for e in events) + 600
+    # 每分鐘 delta(長期存檔 + 即時檔,同分鐘取 n 大者)
+    merged = {}
+    try:
+        merged.update(OST.read_minutes(ORDERFLOW_MINUTES_DIR, tmin, tmax))
+    except Exception:
+        pass
+    recs = []
+    try:
+        with open(ORDERFLOW_HISTORY_PATH, "r", encoding="utf-8", errors="ignore") as f:
+            for ln in f:
+                try:
+                    r = json.loads(ln)
+                except Exception:
+                    continue
+                ra = r.get("received_at") or 0
+                if tmin <= ra <= tmax:
+                    recs.append((ra, r))
+    except Exception:
+        recs = []
+    try:
+        for mrow in (OM.minute_rows([r for _, r in recs], 60) if recs else []):
+            old = merged.get(mrow["t"])
+            if old is None or (mrow.get("n") or 0) >= (old.get("n") or 0):
+                merged[mrow["t"]] = mrow
+    except Exception:
+        pass
+    # 附近的事件(長期存檔 + 即時檔,id 去重)
+    fe = []
+    try:
+        fe.extend(OST.read_events(ORDERFLOW_EVENTS_ARCHIVE_DIR, tmin, tmax))
+    except Exception:
+        pass
+    seen = {x.get("id") for x in fe if x.get("id")}
+    try:
+        with open(ORDERFLOW_EVENTS_PATH, "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            f.seek(max(0, size - 8_000_000))
+            raw = f.read().decode("utf-8", "ignore").splitlines()
+    except Exception:
+        raw = []
+    for ln in raw:
+        try:
+            ev = json.loads(ln)
+        except Exception:
+            continue
+        t = ev.get("t")
+        if isinstance(t, (int, float)) and tmin <= t <= tmax and ev.get("k") in ("sweep", "stop", "absorb", "iceberg", "exhaust"):
+            if ev.get("id") in seen:
+                continue
+            seen.add(ev.get("id"))
+            fe.append(ev)
+    mkeys = sorted(merged)
+    for e in events:
+        t = e["t"]
+        dur = aft = 0.0
+        dur_n = aft_n = 0
+        for mn in mkeys:
+            if mn >= t + 300:
+                break
+            if mn < t - 300:
+                continue
+            row = merged[mn]
+            v = row.get("delta_tr")
+            if v is None:
+                continue
+            v = float(v)
+            if mn < t:
+                dur += v; dur_n += 1
+            else:
+                aft += v; aft_n += 1
+        evc = {}
+        for ev in fe:
+            if t - 300 <= ev["t"] <= t + 300:
+                evc[ev["k"]] = evc.get(ev["k"], 0) + 1
+        if dur_n == 0 and aft_n == 0 and not evc:
+            e["flow"] = None
+        else:
+            e["flow"] = dict(dur=round(dur), dur_n=dur_n, aft=round(aft), aft_n=aft_n, ev=evc)
 
 
 def api_events(con, q):
@@ -900,12 +1011,18 @@ def api_events(con, q):
                     mult = float(r.mult) if r.mult is not None else 20.0
                     notional = float(r.dvol) * float(r.strike) * mult          # 名目規模 = 口數 × 履約價 × 乘數(控制多少美元標的;不是權利金,資料沒有成交價)
                     vol_oi = round(float(r.vol) / oi, 2) if oi else None       # 今日累計成交 ÷ 前日 OI(>1 代表換手明顯)
+                    money, m = _money_bucket(r.strike_nq, getattr(r, "nq_spot", None), r.cp)
                     events.append(dict(type="surge", t=e, src=s, price=float(r.strike_nq), strike=float(r.strike), cp=r.cp, dte=int(r.dte), expiry=str(r.expiry),
                                        dvol=float(r.dvol), vol=float(r.vol), dgex=float(r.dgex), share=float(r.dvol) / tot,
                                        mins=round((e - prev_e) / 60.0, 1), mult_base=typical,
-                                       notional=round(notional, 0), vol_oi=vol_oi))
+                                       notional=round(notional, 0), vol_oi=vol_oi, money=money, m=m))
         prev, prev_e = cur, e
-    return dict(events=events[-80:])
+    events = events[-80:]
+    try:
+        _flow_context(events)
+    except Exception:
+        pass
+    return dict(events=events)
 
 
 # ----------------------------- acceleration (gamma squeeze) tendency -----------------------------
