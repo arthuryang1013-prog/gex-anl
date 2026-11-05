@@ -879,6 +879,7 @@ function renderThesis() {
     $('#mDealer').textContent = ''; $('#mShort').innerHTML = '';
     $('#mKeys').innerHTML = ''; $('#mSigs').innerHTML = ''; $('#mDisclaimer').textContent = '';
     $('#mGauge').innerHTML = '';
+    renderSubGauge();
     $('#mVerify').hidden = true; $('#mVerify').innerHTML = '';
     $('#mTrader').innerHTML = '';
     return;
@@ -1008,6 +1009,7 @@ function renderThesis() {
     `<div class="mladderRow ${cls}" ${cls === 'spot' ? '' : `data-strike="${v}"`}><span>${name}</span><b>${fP(v)}</b></div>`).join('') + `</div>`;
   $$('#mKeys .mladderRow[data-strike]').forEach((k) => { k.onclick = () => jumpToStrike(+k.dataset.strike); });
   renderGauge(T);
+  renderSubGauge();
 
   const sigHtml = (T.signals || []).map((s) => {
     const sUp = s.s >= 0, w = Math.round(Math.min(100, Math.abs(s.s) * 100));
@@ -1031,28 +1033,36 @@ function renderThesis() {
   }
   $('#mSigs').innerHTML = sigHtml + ofHtml;
 }
+function gaugeTileHtml(t) {
+  const cls = t.dir === 'up' ? 'up' : t.dir === 'dn' ? 'dn' : 'flat';
+  const mag = t.score == null ? null : Math.max(0, Math.min(1, Math.abs(t.score)));
+  let fill = '';
+  if (mag == null || mag < 0.08) {
+    fill = '<i class="gfill flat"></i>';
+  } else {
+    const h = (mag * 50).toFixed(1);
+    fill = t.dir === 'up'
+      ? `<i class="gfill up" style="height:${h}%"></i>`
+      : `<i class="gfill dn" style="height:${h}%"></i>`;
+  }
+  return `<div class="gcol" title="${t.note || ''}">
+    <div class="gval ${cls}">${t.val || '—'}</div>
+    <div class="gbar">${fill}</div>
+    <div class="gname">${t.name}</div>
+  </div>`;
+}
 function renderGauge(T) {
   const g = T.gauge || [];
   const el = $('#mGauge');
   if (!g.length) { el.innerHTML = '<span class="dim">儀表板資料還沒好</span>'; return; }
-  el.innerHTML = g.map((t) => {
-    const cls = t.dir === 'up' ? 'up' : t.dir === 'dn' ? 'dn' : 'flat';
-    const mag = t.score == null ? null : Math.max(0, Math.min(1, Math.abs(t.score)));
-    let fill = '';
-    if (mag == null || mag < 0.08) {
-      fill = '<i class="gfill flat"></i>';
-    } else {
-      const h = (mag * 50).toFixed(1);
-      fill = t.dir === 'up'
-        ? `<i class="gfill up" style="height:${h}%"></i>`
-        : `<i class="gfill dn" style="height:${h}%"></i>`;
-    }
-    return `<div class="gcol" title="${t.note || ''}">
-      <div class="gval ${cls}">${t.val || '—'}</div>
-      <div class="gbar">${fill}</div>
-      <div class="gname">${t.name}</div>
-    </div>`;
-  }).join('');
+  el.innerHTML = g.map(gaugeTileHtml).join('');
+}
+function renderSubGauge() {
+  const el = $('#subgauge'); if (!el) return;
+  const T = D.thesis;
+  const g = (T && T.gauge) || [];
+  if (!g.length) { el.innerHTML = '<span class="dim">多空儀表資料還沒好(等最新快照)</span>'; return; }
+  el.innerHTML = g.map(gaugeTileHtml).join('');
 }
 /* ---- 導師精簡重點版(浮在熱圖旁,可拖動、可關閉) ---- */
 function renderMmini() {
@@ -1178,6 +1188,23 @@ function buildAbsorbCum() {
 }
 function applySq() {
   const sq = S.subMode === 'sq', ab = S.subMode === 'abs', cu = S.subMode === 'cum';
+  if (S.subMode === 'gauge') {
+    netSeries.applyOptions({ visible: false });
+    netZero.applyOptions({ visible: false });
+    netEx0.applyOptions({ visible: false });
+    flowCum.applyOptions({ visible: false });
+    spdSeries.applyOptions({ visible: false });
+    absSeries.applyOptions({ visible: false });
+    cumAbsSeries.applyOptions({ visible: false });
+    subChart.priceScale('spd').applyOptions({ visible: false });
+    $('#subchart').style.display = 'none';
+    const sg = $('#subgauge'); if (sg) sg.hidden = false;
+    $('#subtitle').textContent = '即時多空儀表板 · 導師盤面指標(規則)· 隨快照自動更新 · 未驗證預測力';
+    renderSubGauge();
+    return;
+  }
+  $('#subchart').style.display = '';
+  const sg0 = $('#subgauge'); if (sg0) sg0.hidden = true;
   const fmt = (ab || cu) ? (v) => (v >= 0 ? '+' : '') + Math.round(v * 100) + '%' : sq ? (v) => f0.format(v) + ' 口' : (v) => fM(v).replace('+', '');
   subChart.applyOptions({ localization: { priceFormatter: fmt } });
   netSeries.applyOptions({ visible: !sq && !ab && !cu });

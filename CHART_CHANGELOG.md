@@ -18,6 +18,36 @@
 
 ---
 
+## 2026-11-06(台北)· 熱圖副圖新增分頁「多空儀表」(即時多空儀表板)
+
+**畫面上看到什麼不同**
+- 熱圖下方副圖的分頁,原本 4 個(Net GEX / 訂單流動能 / 吸收背離 / 累積吸收),現在多一個「多空儀表」。
+- 點「多空儀表」,副圖區域顯示一整排多/空磁磚(跟導師頁「即時多空儀表板」同一套:GEX 加權方向、NQ/QQQ/NDX GEX、訂單流、0DTE gamma、做市商 gamma、未來 5 分鐘、Put/Call 比);綠=偏多、紅=偏空、灰=中性,柱高=強度,滑鼠停在磁磚上看說明。
+- 資料跟導師頁同源、隨每個 GEX 快照自動更新(不用手動整理);資料還沒好時顯示「多空儀表資料還沒好」。
+
+**改了哪裡**
+- `web/index.html`:`#subtabs` 加 `<button data-v="gauge">多空儀表</button>`;`#subwrap` 內 `#subchart` 之後加 `<div id="subgauge" class="mdash subgauge" hidden>`。
+- `web/app.js`:把原本 `renderGauge` 的磁磚 HTML 抽成 `gaugeTileHtml(t)`;新增 `renderSubGauge()` 畫到 `#subgauge`;`renderThesis()` 在資料 ok 與失敗兩種分支都呼叫 `renderSubGauge()`;`applySq()` 加 `S.subMode==='gauge'` 分支(隱藏全部 time-series、隱藏 `#subchart`、顯示 `#subgauge`、更新副標題)。切回其他分頁時還原 `#subchart` 顯示、隱藏 `#subgauge`。
+- `web/style.css`:新增 `.subgauge`(絕對定位填滿副圖區、垂直置中、橫向捲動)、`.subgauge .gbar`(柱高 64px,原本 110px 太高)、`#subgauge[hidden]{display:none}`(因 `.mdash` 是 `display:flex` 會蓋掉 HTML 的 hidden 屬性,需明確覆寫);副圖收合規則加 `#subgauge`。
+
+**為什麼改**:使用者想把導師頁的「即時多空儀表板」放進熱圖副圖,而且要即時(隨快照自動更新,不是靜態截圖)。呈現方式選「副圖新增分頁」。
+
+**怎麼操作 / 還原**
+- 點副圖右上「多空儀表」分頁;再點其他分頁切回線圖。副圖仍可拖曳高度、收合(收合時磁磚一起隱藏)。
+- 純前端,`git pull` + 強制重整即生效,不用重啟 gex-web。
+- 還原:`git revert` 該 commit;或手動移除 `#subtabs` 的 gauge 按鈕、`#subgauge` div、app.js 的 `renderSubGauge`/`gaugeTileHtml` 與 `applySq` 的 gauge 分支、style.css 的 `.subgauge` 與 folded 規則。
+
+**只影響畫面,還是也影響資料**:只影響畫面。資料沿用現成 `/api/thesis` 的 `gauge` 欄位(後端 `_gauge_tiles` 已存在),沒有動 API、存檔、偵測。
+
+**驗證了什麼、沒驗證什麼**:`node --check web/app.js` 通過;grep 確認 `renderGauge`/`renderSubGauge`/`gaugeTileHtml` 引用一致。**真實畫面沒看過**(磁磚在副圖區的排版、柱高 64px 是否合適、切換分頁、收合/展開、窄螢幕橫向捲動,都要在瀏覽器實際看)。
+
+**已知限制**
+- 「即時」= 隨 GEX 快照更新(跟導師頁一致),不是每一秒;快照間隔由收集器決定,訂單流那格也是跟著快照一起更新。
+- 磁磚方向的判定是規則版導師的程式推斷,未驗證預測力(跟導師頁同源、同一批免責)。
+- `#subchart` 被 `display:none` 再顯示時靠 lightweight-charts 的 autoSize 自癒,沒在真瀏覽器驗證過會不會偶爾尺寸跑掉(收合/展開副圖是既有行為,風險低)。
+
+---
+
 ## 2026-11-06(台北)· 移除左上角圖例(開高低收 / GEX 壓力 / 牆線 / ±1σ 0DTE 壓力帶)
 
 **畫面上看到什麼不同**
