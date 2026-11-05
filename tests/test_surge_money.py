@@ -95,7 +95,9 @@ def test_api_events_money_flow():
     G.ORDERFLOW_MINUTES_DIR = os.path.join(d, "empty_min")
     G.ORDERFLOW_EVENTS_ARCHIVE_DIR = os.path.join(d, "empty_ev")
     try:
-        events = G.api_events(con, {"from": t0, "to": t1 + 60, "src": "NQ"}).get("events", [])
+        # 多來源(NQ,QQQ)是刻意要抓一個回歸:內層把變數 m 從 DataFrame 蓋成 int,下一個來源會 TypeError。
+        # 所以這裡傳 "NQ,QQQ",舊程式會炸,修好後應該通過。
+        events = G.api_events(con, {"from": t0, "to": t1 + 60, "src": "NQ,QQQ"}).get("events", [])
         assert events, "應該至少偵測到一次 surge"
         e = events[0]
         assert e["money"] == "深度價外"

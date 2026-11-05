@@ -48,6 +48,8 @@
 - 訂單流併排是「程式粗讀、非 AI」,只量關聯;成交量沒有買賣方向,不能推因果;`delta_tr` 仍未跟 Bookmap 原生 CVD 對過。
 - 每事件 AI 論述不可行(冷卻/成本),所以用固定模板。
 
+**修正(2026-11-05,VPS 上線後發現)**:`api_events` 內層把 `money, m = _money_bucket(...)` 的 `m` 蓋掉了外層 DataFrame `m`;`src=NQ,QQQ,NDX`(多來源)時,第一個來源跑完 surge 後 `m` 變成 int,第二個來源 `ms = m[m["src"] == s]` 就 `TypeError: 'int' object is not subscriptable`。修法:內層改用 `mp` 變數。測試 `tests/test_surge_money.py` 已把 `src` 改成 `NQ,QQQ` 來抓這個回歸(舊程式會炸)。這是後端崩潰、不影響資料;網站整頁 `/api/events` 會 500。
+
 ---
 
 ## 2026-11-04 22:10(台北)· 新增「對沖模擬」分頁(NQ 選擇權 + NQ/MNQ 期貨對沖的紙上交易)· patch AR · commit 標題「對沖模擬頁」
