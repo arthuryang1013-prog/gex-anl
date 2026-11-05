@@ -66,4 +66,38 @@ except ValueError:
 # ATM 一日選擇權的量級合理性(不是驗證,只是擋明顯單位錯誤):F=29800, iv=20%, 1 天 → 約 0.4*F*iv*sqrt(T) ≈ 130 點
 p = H.price(29800, 29800, 1 / 365, 0.20, "C")
 assert 100 < p < 160, p
+
+# bs_yield_greeks:vanna / charm 用有限差分驗證(不需收集器)
+for S, K, T, iv in cases:
+    for q in (0.0, 0.006, 0.04):
+        for cp in "CP":
+            g = H.bs_yield_greeks(S, K, T, iv, cp, r=R, q=q)
+            # vanna = ∂Δ/∂σ,每 1 個波動率點
+            ds = 1e-5
+            v_num = (H.bs_yield_greeks(S, K, T, iv + ds, cp, r=R, q=q)["delta"]
+                     - H.bs_yield_greeks(S, K, T, iv - ds, cp, r=R, q=q)["delta"]) / (2 * ds) * 0.01
+            assert abs(v_num - g["vanna"]) < max(1e-7, abs(g["vanna"]) * 1e-3), (S, K, T, iv, q, cp, v_num, g["vanna"])
+            # charm = ∂Δ/∂T,每 1 個日曆日(步長要夠小,短到期 charm∝1/T,差分截斷誤差會放大)
+            dT = 1e-6
+            c_num = (H.bs_yield_greeks(S, K, T + dT, iv, cp, r=R, q=q)["delta"]
+                     - H.bs_yield_greeks(S, K, T - dT, iv, cp, r=R, q=q)["delta"]) / (2 * dT) / 365
+            assert abs(c_num - g["charm"]) < max(1e-6, abs(g["charm"]) * 1e-3), (S, K, T, iv, q, cp, c_num, g["charm"])
+
+# vanna 對 Call / Put 相同
+for F, K, T, iv in cases:
+    c, p = H.bs_yield_greeks(F, K, T, iv, "C", r=R, q=0.006), H.bs_yield_greeks(F, K, T, iv, "P", r=R, q=0.006)
+    assert abs(c["vanna"] - p["vanna"]) < 1e-12
+
+# 與收集器 bs_gamma 交叉驗證(q 一致時 gamma 要完全相等)
+try:
+    import nq_gex_collector as C
+    for F, K, T, iv in cases:
+        for q in (0.0, 0.006, 0.04):
+            a = float(C.bs_gamma(F, K, T, iv, R, q))
+            b = H.bs_yield_greeks(F, K, T, iv, "C", r=R, q=q)["gamma"]
+            assert abs(a - b) < 1e-12 + abs(a) * 1e-9, (F, K, T, iv, q, a, b)
+    print("bs_yield_greeks 與收集器 bs_gamma 一致")
+except ImportError as e:
+    print("略過收集器對照(缺套件):", e)
+print("vanna/charm 有限差分 OK")
 print("OK")

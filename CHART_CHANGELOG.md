@@ -18,6 +18,49 @@
 
 ---
 
+## 2026-11-06(台北)· 多空儀表磁磚新增 4 格進階實驗指標(Vanna / Charm / 毒流 VPIN / 價格衝擊)
+
+**畫面上看到什麼不同**
+- 「多空儀表」(導師頁的即時多空儀表板,以及熱圖副圖分頁「多空儀表」同一套磁磚)從 9 格變成 13 格,新增:
+  - **Vanna 環境**:綠=正、紅=負、灰=資料不足。正 = 做市商波動上升時的對沖流會承接(壓波動)、負 = 追殺(放大波動)。
+  - **Charm 環境**:綠=正、紅=負、灰=資料不足。隨到期逼近,做市商對沖流的 Delta 漂移方向。
+  - **毒流(VPIN)**:中性格(不顯示多空,灰),數值 0~1;高 = 有單邊資金持續主導、波動或將放大。
+  - **價格衝擊**:中性格(灰),顯示「每千口約動幾點」;高 = 簿子薄、易被掃穿。
+- 每格滑鼠停上去有說明;Vanna/Charm 有方向(綠/紅),VPIN/價格衝擊刻意做成中性(不給方向)。
+
+**改了哪裡**
+- `hedge_pricing.py`:新增 `bs_yield_greeks()`(Black-Scholes 含連續殖利率 q 的 Greeks,與收集器 `nq_gex_collector.bs_gamma` 同模型;q==r 時等同 Black-76),算 delta/gamma/vega/vanna/charm。**不動**既有 `greeks()`(那套是純 Black-76、給對沖模擬用)。
+- `orderflow_minutes.py`:新增 `vpin_impact()`(成交量分桶的 VPIN + 每分鐘 |Δspot|/vol 中位數的價格衝擊 Lambda),吃 `minute_rows()` 的每分鐘彙總。
+- `gex_web_server.py`:
+  - 新增 `_vanna_charm(con, latest, src)`:把最新快照的每檔合約算 vanna/charm,以 OI×mult 加權、帶 call/put 正負號,得「淨做市商 vanna/charm」。接進 `_thesis_src`,回傳 `net_vanna` / `net_charm`。
+  - 新增 `_orderflow_micro(cfg)`:讀 `orderflow_history.jsonl` 最近 ~30 分鐘算 VPIN 與價格衝擊,接進 `_orderflow_signals` 回傳(`vpin` / `impact` / `micro_minutes`)。
+  - `_gauge_tiles`:新增 `vanna`、`charm`(有方向)、`vpin`、`impact`(中性、`score=None`)4 格。
+  - `_sig_json`:把實驗原始值一起存進 `thesis.sig_json`(各來源 `vanna_charm.vanna/.charm`、`agg.vpin`、`agg.impact`),供日後回測。
+- 磁磚總數由 9 → 13;純後端,`web/app.js` / `web/index.html` / `web/style.css` **沒有改**(磁磚本來就是後端 `_gauge_tiles` 產生、前端 `gaugeTileHtml` 通用渲染)。
+
+**為什麼改**:使用者說「上面這些我都有辦法看到,我要更專業更厲害的東西」,並在累積數據的同時嘗試不同可能性。我提出 Vanna/Charm(做市商二階對沖)、Kyle's Lambda(價格衝擊/流動性)、VPIN(毒流)三種進階微觀結構量,使用者同意「都可以加上看看」。
+
+**怎麼操作 / 還原**
+- 不用操作:導師頁與熱圖副圖「多空儀表」分頁的磁磚列會自動多出 4 格;窄螢幕時磁磚列會橫向捲動(本來就是 `overflow-x:auto`)。
+- 還原:移除 `_gauge_tiles` 裡這 4 格、`_thesis_src` 的 `net_vanna/net_charm`、`_orderflow_signals` 的 `**_orderflow_micro(cfg)`、`_sig_json` 的 `vanna_charm`/`agg.vpin`/`agg.impact` 即可;`hedge_pricing.bs_yield_greeks` 與 `orderflow_minutes.vpin_impact` 可留著(無副作用)。
+
+**只影響畫面,還是也影響資料**:畫面(磁磚)+ 存檔(`thesis.sig_json` 多存了 `vanna_charm`、`agg.vpin`、`agg.impact` 實驗欄位,給日後回測;現有分數 `raw`/`raw_dir`/`regime_s` 完全沒動)。不改偵測、不改 API 結構(沿用既有 `/api/thesis` 的 `gauge` 欄位)。
+
+**驗證了什麼、沒驗證什麼**
+- `python3 -m py_compile gex_web_server.py hedge_pricing.py orderflow_minutes.py` 通過。
+- `tests/test_hedge_pricing.py` 通過:`bs_yield_greeks` 的 vanna/charm 用有限差分驗證、vanna 對 Call/Put 相同、gamma 與收集器 `bs_gamma` 交叉一致。
+- `tests/test_orderflow_minutes.py` 通過:`vpin_impact` 單邊→vpin≈1、平衡→vpin≈0、價格衝擊=0.01 點/口、資料不足回 None。
+- 後端 smoke test(合成 sqlite + 假資料)確認 `_vanna_charm` 回非零 net_vanna/net_charm、`_gauge_tiles` 回 13 格、`_sig_json` 含新欄位。
+- **沒驗證**:真實畫面磁磚排版、真實 VPS 資料量級、這些量的「方向預測力」**完全未驗證**(屬慣例推論/實驗)。VPIN/Lambda 的門檻(窗口 30 分鐘、分桶 25、下限 200 口)是初始值。
+
+**已知限制**
+- Vanna/Charm 是**慣例推論、未驗證**——與 GEX 同屬「做市商對沖流的推測」,不當方向事實。
+- VPIN/價格衝擊來自 orderflow 歷史檔,只有 bridge 啟動後才有;資料少於幾分鐘會顯示「orderflow 歷史不足」。
+- `delta_tr` 本身仍未跟 Bookmap 原生 CVD 對過,VPIN/Lambda 建立在它之上,量級可能有偏差。
+- 樣本少時誤差很大,**在累積足夠數據、跑出回測前,不要宣稱這 4 格有預測力**。
+
+---
+
 ## 2026-11-06(台北)· 熱圖副圖新增分頁「多空儀表」(即時多空儀表板)
 
 **畫面上看到什麼不同**

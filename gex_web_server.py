@@ -47,6 +47,7 @@ import mentor_log as ML
 import ai_mentor as AM
 import orderflow_minutes as OM
 import orderflow_store as OST
+import hedge_pricing as HP
 
 try:
     HERE = os.path.dirname(os.path.abspath(__file__))
@@ -1377,6 +1378,36 @@ def _big_flow(con, latest, src):
                 top=top, n=int(len(top)))
 
 
+def _vanna_charm(con, latest, src):
+    """把最新快照的每檔合約算 vanna / charm,以 OI 加權(帶 cp 正負號)成「淨 dealer vanna / charm」。
+    模型與收集器 gamma 一致(含殖利率 q 的 Black-Scholes;NQ q=r=0.04、QQQ/NDX 各自 q)。慣例推論、未驗證。
+    回傳 dict(net_vanna, net_charm, n) 或 None(沒資料)。只依正負號給環境訊號,量級留給 sig_json 累積。"""
+    e = exprs(con)
+    try:
+        rows = con.execute(
+            f"SELECT strike, cp, oi, iv, F, T, mult, COALESCE(q,0.0) FROM contracts "
+            f"WHERE ts=? AND {e['src']}=? AND oi>0 AND iv>0 AND T>0", (latest, src)).fetchall()
+    except Exception:
+        return None
+    if not rows:
+        return None
+    nv = nc = 0.0
+    n = 0
+    for strike, cp, oi, iv, F, T, mult, q in rows:
+        try:
+            g = HP.bs_yield_greeks(float(F), float(strike), float(T), float(iv), cp, r=HP.RISK_FREE, q=float(q or 0.0))
+        except Exception:
+            continue
+        sgn = 1.0 if str(cp).upper()[:1] == "C" else -1.0
+        w = float(oi or 0) * float(mult or 0)
+        nv += sgn * g["vanna"] * w
+        nc += sgn * g["charm"] * w
+        n += 1
+    if n == 0:
+        return None
+    return dict(net_vanna=nv, net_charm=nc, n=n)
+
+
 def _thesis_src(con, src, lo, t, latest, spot, snaps):
     """Score ONE source's signals -> (raw, signals, ctx)."""
     ret1 = ret4 = None
@@ -1442,6 +1473,9 @@ def _thesis_src(con, src, lo, t, latest, spot, snaps):
     band0 = _dte0_band(con, latest, src, spot)
     flow0 = _dte0_flow(con, src)
     big0 = _big_flow(con, latest, src)
+    vc = _vanna_charm(con, latest, src)
+    net_vanna = vc["net_vanna"] if vc else None
+    net_charm = vc["net_charm"] if vc else None
 
     signals = []
 
@@ -1510,7 +1544,8 @@ def _thesis_src(con, src, lo, t, latest, spot, snaps):
                               pcr_vol=pcr_vol, pcr_vol0=pcr_vol0, sk=sk,
                               band_up=band_up, band_dn=band_dn, atm_iv=atm_iv, dte=dte, call_dv=call_dv, put_dv=put_dv,
                               flip=flip, call_wall=call_wall, put_wall=put_wall,
-                              flip0=flip0, call_wall0=call_wall0, put_wall0=put_wall0, share0=share0, band0=band0, flow0=flow0, big0=big0)
+                              flip0=flip0, call_wall0=call_wall0, put_wall0=put_wall0, share0=share0, band0=band0, flow0=flow0, big0=big0,
+                              net_vanna=net_vanna, net_charm=net_charm)
 
 
 def _structure(con, latest, spot, sigma):
@@ -1608,6 +1643,34 @@ def _load_orderflow(cfg):
     return dict(data=data, age_sec=age, lag_sec=lag, stale=stale, available=available)
 
 
+def _orderflow_micro(cfg, window_secs=1800):
+    """從 orderflow_history.jsonl 最近 ~30 分鐘算 VPIN(毒流)與價格衝擊 Lambda。實驗中,未驗證;任何錯誤回 {}。"""
+    try:
+        with open(ORDERFLOW_HISTORY_PATH, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+    except Exception:
+        return {}
+    cutoff = time.time() - window_secs
+    recs = []
+    for ln in lines:
+        try:
+            rec = json.loads(ln)
+        except Exception:
+            continue
+        if rec.get("received_at", 0.0) >= cutoff:
+            recs.append(rec)
+    if len(recs) < 60:
+        return {}
+    recs.sort(key=lambda r: r.get("received_at", 0.0))
+    vpin, impact, n = OM.vpin_impact(OM.minute_rows(recs))
+    out = dict(micro_minutes=n)
+    if vpin is not None:
+        out["vpin"] = vpin
+    if impact is not None:
+        out["impact"] = impact
+    return out
+
+
 def _flow_signal(name, value, weight, text):
     return dict(name=name, value=value, s=_clamp(value), weight=weight, text=text)
 
@@ -1653,7 +1716,7 @@ def _orderflow_signals(cfg):
     return dict(available=True, stale=False, connected=True, age_sec=of["age_sec"], lag_sec=of["lag_sec"],
                 signals=sigs, raw=raw, spot=d.get("spot"),
                 delta=delta, vol=vol, imb=imb, big=big, big_vol=big_vol,
-                sweep_buy=sw_buy, sweep_sell=sw_sell)
+                sweep_buy=sw_buy, sweep_sell=sw_sell, **_orderflow_micro(cfg))
 
 
 def _orderflow_sentence(flow):
@@ -2121,6 +2184,18 @@ def _gauge_tiles(spot, score, per, flow, nq, trader, short):
                           f"Delta/不平衡/大單/掃單 · 約 {int(flow['age_sec'])} 秒前"))
     else:
         tiles.append(tile("flow", "訂單流", None, "—", "未連線或過時,本項不計"))
+    vp = flow.get("vpin")
+    if vp is not None:
+        tiles.append(dict(id="vpin", name="毒流(VPIN)", dir="flat", score=None, val=f"{vp:.2f}",
+                          note="成交量分桶的單邊主導(0~1);高=有單邊資金持續主導、波動或將放大。未驗證"))
+    else:
+        tiles.append(dict(id="vpin", name="毒流(VPIN)", dir="flat", score=None, val="—", note="orderflow 歷史不足(需幾分鐘資料)"))
+    imp = flow.get("impact")
+    if imp is not None:
+        tiles.append(dict(id="impact", name="價格衝擊", dir="flat", score=None, val=f"每千口約 {imp * 1000:.1f} 點",
+                          note="Kyle's Lambda:每千口成交約動幾點;高=簿子薄、易被掃穿。未驗證"))
+    else:
+        tiles.append(dict(id="impact", name="價格衝擊", dir="flat", score=None, val="—", note="orderflow 歷史不足"))
     flip0 = nq.get("flip0")
     share0 = nq.get("share0")
     if flip0 is not None:
@@ -2133,6 +2208,20 @@ def _gauge_tiles(spot, score, per, flow, nq, trader, short):
         tiles.append(tile("dte0", "0DTE gamma", None, "—", "flip 資料不足"))
     pg = trader.get("pos_gamma")
     tiles.append(tile("mm", "做市商 gamma", 0.6 if pg else -0.6, trader.get("gamma_sign") or "—", trader.get("regime") or ""))
+    vv = nq.get("net_vanna")
+    if vv is not None:
+        tiles.append(tile("vanna", "Vanna 環境", 0.5 if vv > 0 else (-0.5 if vv < 0 else 0.0),
+                          f"{'正' if vv > 0 else ('負' if vv < 0 else '零')} {_fnum(abs(vv))}",
+                          "波動上升時做市商對沖流向:正=承接(壓波動)、負=追殺(放大)。慣例推論,未驗證"))
+    else:
+        tiles.append(tile("vanna", "Vanna 環境", None, "—", "資料不足"))
+    cc = nq.get("net_charm")
+    if cc is not None:
+        tiles.append(tile("charm", "Charm 環境", 0.5 if cc > 0 else (-0.5 if cc < 0 else 0.0),
+                          f"{'正' if cc > 0 else ('負' if cc < 0 else '零')} {_fnum(abs(cc))}",
+                          "隨到期逼近,做市商對沖流的 Delta 漂移方向。慣例推論,未驗證"))
+    else:
+        tiles.append(tile("charm", "Charm 環境", None, "—", "資料不足"))
     tiles.append(tile("short", "未來 5 分鐘", (short.get("score") or 0) / 100.0, f"{short.get('score', 0):+d}", short.get("note") or ""))
     pcr = nq.get("pcr_vol0")
     if pcr is not None:
@@ -2250,11 +2339,23 @@ def _thesis_save(ts, t, spot, direction, score, confidence, strength, short, fli
 
 def _sig_json(per, flow, gex, grand):
     """把當下每個訊號的 s(-1~+1)存成 JSON,供 signal_outcome.py 事後驗證「哪個訊號有預測力」。
-    格式:{"NQ": {id: s}, "QQQ": {...}, "NDX": {...}, "flow": {名稱: s}, "agg": {"gex":..,"flow":..,"grand":..}}"""
+    格式:{"NQ": {id: s}, "QQQ": {...}, "NDX": {...}, "flow": {名稱: s}, "agg": {"gex":..,"flow":..,"grand":..}}。
+    另存實驗中(未驗證)的原始值:vanna_charm(各來源淨值)、agg.vpin / agg.impact。"""
     try:
         d = dict((k, dict((x["id"], round(float(x["s"]), 3)) for x in per[k]["signals"] if x.get("id"))) for k in per)
         d["flow"] = dict((x["name"], round(float(x["s"]), 3)) for x in (flow.get("signals") or []))
         d["agg"] = dict(gex=round(float(gex), 3), flow=round(float(flow.get("raw") or 0.0), 3), grand=round(float(grand), 3))
+        vc = {}
+        for k in per:
+            ctx = per[k].get("ctx") or {}
+            if ctx.get("net_vanna") is not None:
+                vc[k] = dict(vanna=round(float(ctx["net_vanna"]), 6), charm=round(float(ctx["net_charm"]), 6))
+        if vc:
+            d["vanna_charm"] = vc
+        if flow.get("vpin") is not None:
+            d["agg"]["vpin"] = round(float(flow["vpin"]), 4)
+        if flow.get("impact") is not None:
+            d["agg"]["impact"] = round(float(flow["impact"]), 8)
         return json.dumps(d, ensure_ascii=False)
     except Exception:
         return None
