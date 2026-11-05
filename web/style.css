@@ -184,7 +184,10 @@ table.t tr:hover td{background:rgba(255,255,255,.025)}
 .card table.mini td,.card table.mini th{padding:3px 4px;text-align:right;font-weight:400;border-top:1px solid var(--line)}
 .card table.mini th:first-child,.card table.mini td:first-child{text-align:left;color:var(--muted)}
 .card .pc{display:flex;height:6px;border-radius:3px;overflow:hidden;margin-top:3px}
-.evcard{position:absolute;z-index:6;width:300px;padding:14px 15px;border-radius:14px;background:rgba(18,23,33,.97);border:1px solid var(--line2);box-shadow:0 14px 40px rgba(0,0,0,.55)}
+.evcard{position:absolute;z-index:6;width:300px;max-height:calc(100% - 16px);overflow-y:auto;scrollbar-width:thin;padding:14px 15px;border-radius:14px;background:rgba(18,23,33,.97);border:1px solid var(--line2);box-shadow:0 14px 40px rgba(0,0,0,.55)}
+.evcard::-webkit-scrollbar{width:6px}
+.evcard::-webkit-scrollbar-thumb{background:rgba(255,255,255,.16);border-radius:3px}
+.evcard::-webkit-scrollbar-track{background:transparent}
 .evcard .chip{display:inline-block;padding:2px 9px;border-radius:999px;font-size:10.5px;letter-spacing:.08em;font-weight:650;background:rgba(231,164,76,.14);color:var(--amber)}
 .evcard .x{position:absolute;right:10px;top:8px;background:none;border:0;color:var(--muted);font-size:18px;line-height:1}
 .evcard h4{margin:9px 0 2px;font-size:17px;font-weight:650}
