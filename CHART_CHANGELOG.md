@@ -35,7 +35,7 @@
   - 新增 `_vanna_charm(con, latest, src)`:把最新快照的每檔合約算 vanna/charm,以 OI×mult 加權、帶 call/put 正負號,得「淨做市商 vanna/charm」。接進 `_thesis_src`,回傳 `net_vanna` / `net_charm`。
   - 新增 `_orderflow_micro(cfg)`:讀 `orderflow_history.jsonl` 最近 ~30 分鐘算 VPIN 與價格衝擊,接進 `_orderflow_signals` 回傳(`vpin` / `impact` / `micro_minutes`)。
   - `_gauge_tiles`:新增 `vanna`、`charm`(有方向)、`vpin`、`impact`(中性、`score=None`)4 格。
-  - `_sig_json`:把實驗原始值一起存進 `thesis.sig_json`(各來源 `vanna_charm.vanna/.charm`、`agg.vpin`、`agg.impact`),供日後回測。
+  - `_sig_json`:把實驗原始值一起存進 `thesis.sig_json`(各來源 `vanna_charm.vanna/.charm`、`micro.vpin`、`micro.impact`),供日後回測。
 - 磁磚總數由 9 → 13;純後端,`web/app.js` / `web/index.html` / `web/style.css` **沒有改**(磁磚本來就是後端 `_gauge_tiles` 產生、前端 `gaugeTileHtml` 通用渲染)。
 
 **為什麼改**:使用者說「上面這些我都有辦法看到,我要更專業更厲害的東西」,並在累積數據的同時嘗試不同可能性。我提出 Vanna/Charm(做市商二階對沖)、Kyle's Lambda(價格衝擊/流動性)、VPIN(毒流)三種進階微觀結構量,使用者同意「都可以加上看看」。
@@ -44,7 +44,7 @@
 - 不用操作:導師頁與熱圖副圖「多空儀表」分頁的磁磚列會自動多出 4 格;窄螢幕時磁磚列會橫向捲動(本來就是 `overflow-x:auto`)。
 - 還原:移除 `_gauge_tiles` 裡這 4 格、`_thesis_src` 的 `net_vanna/net_charm`、`_orderflow_signals` 的 `**_orderflow_micro(cfg)`、`_sig_json` 的 `vanna_charm`/`agg.vpin`/`agg.impact` 即可;`hedge_pricing.bs_yield_greeks` 與 `orderflow_minutes.vpin_impact` 可留著(無副作用)。
 
-**只影響畫面,還是也影響資料**:畫面(磁磚)+ 存檔(`thesis.sig_json` 多存了 `vanna_charm`、`agg.vpin`、`agg.impact` 實驗欄位,給日後回測;現有分數 `raw`/`raw_dir`/`regime_s` 完全沒動)。不改偵測、不改 API 結構(沿用既有 `/api/thesis` 的 `gauge` 欄位)。
+**只影響畫面,還是也影響資料**:畫面(磁磚)+ 存檔(`thesis.sig_json` 多存了 `vanna_charm`、`micro.vpin`、`micro.impact` 實驗欄位,給日後回測;現有分數 `raw`/`raw_dir`/`regime_s` 完全沒動)。不改偵測、不改 API 結構(沿用既有 `/api/thesis` 的 `gauge` 欄位)。vpin/impact 刻意放在 `micro` 而非 `agg`,因為 `signal_outcome.py` 會把 `agg` 每個 key 當成有正負號的方向訊號回測,而 vpin/impact 不是方向訊號。
 
 **驗證了什麼、沒驗證什麼**
 - `python3 -m py_compile gex_web_server.py hedge_pricing.py orderflow_minutes.py` 通過。

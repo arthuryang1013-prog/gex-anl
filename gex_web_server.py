@@ -2340,7 +2340,9 @@ def _thesis_save(ts, t, spot, direction, score, confidence, strength, short, fli
 def _sig_json(per, flow, gex, grand):
     """把當下每個訊號的 s(-1~+1)存成 JSON,供 signal_outcome.py 事後驗證「哪個訊號有預測力」。
     格式:{"NQ": {id: s}, "QQQ": {...}, "NDX": {...}, "flow": {名稱: s}, "agg": {"gex":..,"flow":..,"grand":..}}。
-    另存實驗中(未驗證)的原始值:vanna_charm(各來源淨值)、agg.vpin / agg.impact。"""
+    另存實驗中(未驗證)的原始值:vanna_charm(各來源淨值)、micro.vpin / micro.impact(訂單流微觀量)。
+    注意:vpin/impact 是「原始微觀量」(非 -1~+1 方向訊號),不能放 agg——agg 裡的 key 會被 signal_outcome.py
+    當成有正負號的方向訊號來回測,放進去會得到錯誤的方向統計。"""
     try:
         d = dict((k, dict((x["id"], round(float(x["s"]), 3)) for x in per[k]["signals"] if x.get("id"))) for k in per)
         d["flow"] = dict((x["name"], round(float(x["s"]), 3)) for x in (flow.get("signals") or []))
@@ -2352,10 +2354,13 @@ def _sig_json(per, flow, gex, grand):
                 vc[k] = dict(vanna=round(float(ctx["net_vanna"]), 6), charm=round(float(ctx["net_charm"]), 6))
         if vc:
             d["vanna_charm"] = vc
+        micro = {}
         if flow.get("vpin") is not None:
-            d["agg"]["vpin"] = round(float(flow["vpin"]), 4)
+            micro["vpin"] = round(float(flow["vpin"]), 4)
         if flow.get("impact") is not None:
-            d["agg"]["impact"] = round(float(flow["impact"]), 8)
+            micro["impact"] = round(float(flow["impact"]), 8)
+        if micro:
+            d["micro"] = micro
         return json.dumps(d, ensure_ascii=False)
     except Exception:
         return None
