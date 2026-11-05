@@ -2424,10 +2424,27 @@ function moneyChip(e) {
   return mo ? `<span class="chip" style="margin-left:6px;background:${mo.c}22;color:${mo.c};border:1px solid ${mo.c}66">${e.money}</span>` : '';
 }
 const FE_N = { sweep: '掃單', stop: '停損', absorb: '吸收', iceberg: '冰山', exhaust: '力竭' };
+function intentLine(e) {
+  if (!e.cp) return '';
+  const mo = moneyOf(e);
+  const tag = `${e.money || ''} ${e.cp === 'C' ? 'Call' : 'Put'}`.trim();
+  const buy = e.cp === 'C' ? '買 Call = 槓桿押漲 / 買波動' : '買 Put = 避險押跌 / 買波動';
+  const sell = e.cp === 'C' ? '賣 Call = 收權利金 / 做空波動' : '賣 Put = 收權利金 / 做多波動';
+  const nu = e.money === '價平' ? ';價平 gamma 最大、方向最敏感' : e.money === '深度價外' ? ';0DTE 槓桿極高、多數會歸零' : '';
+  return `<div style="margin:3px 0 1px;font-size:12px">主力意圖:<b style="color:${mo ? mo.c : 'var(--dim)'}">${tag}</b> 大單 → ${buy}、${sell}${nu}。成交量無買賣方向,兩種並列。</div>`;
+}
 function flowLine(e) {
   const f = e.flow;
-  if (!f) return '<div style="margin:2px 0;font-size:12px;color:var(--dim)">訂單流:此時間點無資料(或早於 bridge 上線)。</div>';
-  const dir = f.dir ? `<div style="margin:2px 0;font-size:12px">粗讀方向:<b style="color:${f.dir === '偏多' ? '#3fb27f' : f.dir === '偏空' ? '#e5533f' : 'var(--dim)'}">${f.dir}</b>${f.dir_why ? ` <span style="color:var(--dim);font-size:11px">(${f.dir_why})</span>` : ''}</div>` : '';
+  const intent = intentLine(e);
+  if (!f) return intent + '<div style="margin:2px 0;font-size:12px;color:var(--dim)">訂單流:此時間點無資料(或早於 bridge 上線)。</div>';
+  let dir = '';
+  if (f.dir) {
+    const col = f.dir === '偏多' ? '#3fb27f' : f.dir === '偏空' ? '#e5533f' : 'var(--dim)';
+    let synth = '';
+    if (f.dir === '偏多') synth = e.cp === 'C' ? '較像「買 Call 押漲」' : '較像「賣 Put 收租」';
+    else if (f.dir === '偏空') synth = e.cp === 'C' ? '較像「賣 Call / 對沖」' : '較像「買 Put 避險/押跌」';
+    dir = `<div style="margin:2px 0;font-size:12px">訂單流佐證:<b style="color:${col}">${f.dir}</b>${f.dir_why ? ` <span style="color:var(--dim);font-size:11px">(${f.dir_why})</span>` : ''}${synth ? ` → ${synth}` : ''}</div>`;
+  }
   const bits = [];
   if (f.dur_n >= 3) {
     const s = f.dur > 0 ? '淨買' : f.dur < 0 ? '淨賣' : '持平';
@@ -2440,7 +2457,7 @@ function flowLine(e) {
   const evs = [];
   for (const k of Object.keys(FE_N)) if (f.ev && f.ev[k]) evs.push(`${f.ev[k]} ${FE_N[k]}`);
   const body = bits.length ? bits.join(';') + '。' : '此 5 分鐘沒有可用 delta。';
-  return dir + `<div style="margin:2px 0;font-size:12px;color:var(--dim)">訂單流:${body}${evs.length ? `附近另有 <b>${evs.join('、')}</b>。` : '附近無明顯訂單流事件。'}</div>`;
+  return intent + dir + `<div style="margin:2px 0;font-size:12px;color:var(--dim)">訂單流:${body}${evs.length ? `附近另有 <b>${evs.join('、')}</b>。` : '附近無明顯訂單流事件。'}</div>`;
 }
 function evTitle(e) {
   const exp = fmtExp(e.expiry);
@@ -2470,7 +2487,7 @@ function showEvCard(e, at) {
   const note = `<div style="border-top:1px solid var(--line);margin-top:6px;padding-top:5px">` +
     (mo ? `<div style="margin:2px 0;font-size:12px;color:var(--dim)"><b style="color:${mo.c}">${e.money}</b>:${mo.d}</div>` : '') +
     flowLine(e) +
-    `<div style="margin-top:3px;font-size:11px;color:var(--dim);opacity:.7">價內外與訂單流併排是程式粗讀、未驗證預測力;成交量無買賣方向,串連只是關聯不是因果。</div></div>`;
+    `<div style="margin-top:3px;font-size:11px;color:var(--dim);opacity:.7">「主力意圖」與方向都是程式粗讀/推測、未驗證預測力;成交量無買賣方向,串連只是關聯不是因果。</div></div>`;
   card.innerHTML = `<button class="x" aria-label="關閉">×</button><span class="chip">NOTABLE ACTIVITY · ${EV_NAME[e.type]}</span>
     ${moneyChip(e)}
     <h4>${evTitle(e)}</h4><div class="when">${fmtTime(e.t)}</div>${rows}
