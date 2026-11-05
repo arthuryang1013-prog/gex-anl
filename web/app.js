@@ -1469,23 +1469,11 @@ function updatePill() {
   if (age < 1200) setPill('live', `即時 · GEX ${txt} · ${bars}`); else setPill('warn', `GEX 資料 ${txt}(休市或收集器未執行)· ${bars}`);
 }
 
-/* ------------------------------ legend & tooltip ------------------------------ */
+/* ------------------------------ tooltip ------------------------------ */
 function updateLegend(param) {
+  // 左上角圖例已於 2026-11-06 移除(使用者要求「都拿掉」)。保留空函式,避免動到各處呼叫。
   const lg = $('#legend');
-  let b = D.bars[D.bars.length - 1];
-  if (param && param.time) { const i = lowerIdx(D.barT, param.time); if (i >= 0 && D.barT[i] === param.time) b = D.bars[i]; }
-  const up = b && b.close >= b.open, cls = up ? 'up' : 'dn';
-  const ohlc = b ? `<div class="ohlc"><b>NQ</b>${D.kind === 'candles' ? `開 <span class="${cls}">${fP(b.open)}</span>  高 <span class="${cls}">${fP(b.high)}</span>  低 <span class="${cls}">${fP(b.low)}</span>  收 <span class="${cls}">${fP(b.close)}</span>` : `<span class="${cls}">${fP(b.close)}</span> (快照價)`}</div>` : '';
-  const sw = (dash, color = '#aab4c8') => `<svg width="26" height="8"><line x1="1" y1="4" x2="25" y2="4" stroke="${color}" stroke-width="2" ${dash ? `stroke-dasharray="${dash}"` : ''}/></svg>`;
-  const keys = S.lines ? `<div class="keys"><span class="k">${sw('')}Call 牆</span><span class="k">${sw('2 3')}Put 牆</span><span class="k">${sw('7 4')}Flip</span>${S.srcs.map((s) => `<span class="k"><i style="width:8px;height:8px;border-radius:50%;background:${SRC_COL[s]};display:inline-block"></i>${sn(s)}</span>`).join('')}</div>` : '';
-  const bandU = D.bandUpPts[D.bandUpPts.length - 1], bandD = D.bandDnPts[D.bandDnPts.length - 1];
-  const band0U = D.band0UpPts[D.band0UpPts.length - 1], band0D = D.band0DnPts[D.band0DnPts.length - 1];
-  const bandKeys = (S.emband && (D.bandUpPts.length || D.band0UpPts.length)) ? `<div class="keys"><span class="k">${sw('4 3', '#e7a44c')}±1σ ${bandD && bandD.value != null ? fP(bandD.value) : '—'} – ${bandU && bandU.value != null ? fP(bandU.value) : '—'}</span><span class="k">${sw('4 3', '#5eead4')}0DTE ${band0D && band0D.value != null ? fP(band0D.value) : '—'} – ${band0U && band0U.value != null ? fP(band0U.value) : '—'}</span></div>` : '';
-  const N = modeNames(), lut = S.lens === 'net' ? null : LUT[S.lens];
-  const stops = lut ? [0, 64, 128, 192, 255].map((i) => lut[i]).join(',') : [LUT.netNeg[255], LUT.netNeg[140], 'rgba(0,0,0,0)', LUT.netPos[140], LUT.netPos[255]].join(',');
-  const lensName = { abs: N.abs, net: 'Net(正負)', call: N.c, put: N.p }[S.lens];
-  const heat = S.heat ? `<div class="heatinfo"><b>${N.title}</b><span>${lensName}</span><span class="cbar" style="background:linear-gradient(90deg,${stops})"></span><span>${lut ? '低→高' : '負 ← → 正'}</span></div>` : '';
-  lg.innerHTML = ohlc + heat + keys + bandKeys;
+  if (lg) { lg.innerHTML = ''; lg.style.display = 'none'; }
 }
 const tip = $('#tip');
 chart.subscribeCrosshairMove((param) => {

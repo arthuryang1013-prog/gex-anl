@@ -18,6 +18,33 @@
 
 ---
 
+## 2026-11-06(台北)· 移除左上角圖例(開高低收 / GEX 壓力 / 牆線 / ±1σ 0DTE 壓力帶)
+
+**畫面上看到什麼不同**
+- 改之前:圖表左上角有一塊半透明圖例,內容是「NQ 開高低收(快照價)」、「GEX 壓力 合計」色條、「Call 牆 / Put 牆 / Flip + NQ/QQQ/NDX 來源」、以及「±1σ / 0DTE 壓力帶」數值。
+- 改之後:整塊圖例拿掉,左上角不再顯示任何圖例。游標懸停的 tooltip、事件抽屜、其他按鈕都不受影響。
+
+**改了哪裡**
+- `web/app.js`:`updateLegend()` 原本 `lg.innerHTML = ohlc + heat + keys + bandKeys;`,整段清空改成只做隱藏保險的無作用函式(參數與 10 處呼叫點都保留,降低改動風險)。
+- `web/index.html`:移除 `<div class="legend" id="legend">`。
+- `web/style.css`:移除 `.legend`、`.legend .ohlc`、`.legend .ohlc b`、`.legend .keys`、`.legend .k`、`.legend svg`、`.legend .heatinfo`、`.legend .heatinfo .cbar`、`.legend .heatinfo b` 共 9 條樣式。**保留** `.cbar`(熱力色條,別處還在用)與 `.hg-legend`(損益曲線圖例,是另一個東西,不動)。
+
+**為什麼改**:使用者 2026-11-06 要求「左上角這個 開高低收欄位、gex壓力合計、牆線欄目 可以拿掉」,接著說「都拿掉」——即連 ±1σ / 0DTE 壓力帶一起移除,整塊圖例都不要。
+
+**怎麼操作 / 還原**
+- 純前端,`git pull` + 瀏覽器強制重整即生效,不用重啟 gex-web。
+- 還原:`git revert` 該 commit。或手動把 index.html 的 legend div 加回、style.css 的 `.legend` 樣式加回、app.js 的 `updateLegend` 內容還原。
+
+**只影響畫面,還是也影響資料**:只影響畫面。沒有動 API、存檔、偵測、bridge、receiver、資料來源。
+
+**驗證了什麼、沒驗證什麼**:`node --check web/app.js` 通過;grep 確認 `#legend` / `.legend` 只剩 `updateLegend` 內的防護引用(有 `if (lg)` 擋 null),無殘留。**真實畫面沒看過**(移除型改動,風險低);`updateLegend` 仍被呼叫但無作用,屬刻意保留。
+
+**已知限制**
+- `updateLegend` 保留成空函式而非刪掉,是為了不動 10 處呼叫點、避免漏改造成 JS 錯誤;程式碼裡留了一點無作用程式。
+- 若以後想恢復圖例,直接在 `updateLegend` 內重填、並把 index.html 的 div 與 style.css 樣式加回即可。
+
+---
+
 ## 2026-11-05(台北)· 熱圖大單加「價內外」標籤,popup 併排訂單流粗讀
 
 **畫面上看到什麼不同**
