@@ -15,6 +15,22 @@ sys.path.insert(0, HERE)
 import gex_web_server as G
 
 
+def test_dir_read():
+    # 期貨後段淨量方向(aft_n >= 3 才採計)
+    assert G._dir_read(300, 5, {}) == ("偏多", "")
+    assert G._dir_read(-300, 5, {}) == ("偏空", "")
+    assert G._dir_read(0, 5, {}) == ("無明顯方向", "")
+    assert G._dir_read(300, 2, {}) == ("無明顯方向", "")     # 分鐘不足不採計
+    # 事件方向票:掃單/停損/吸收/冰山照 buy/sell;力竭反向
+    assert G._dir_read(0, 0, {"sweep": {"buy": 3, "sell": 1}}) == ("偏多", "掃單 3買/1賣")
+    assert G._dir_read(0, 0, {"iceberg": {"buy": 0, "sell": 5}}) == ("偏空", "冰山 0買/5賣")
+    assert G._dir_read(0, 0, {"exhaust": {"buy": 2, "sell": 0}}) == ("偏空", "力竭 2買/0賣")
+    assert G._dir_read(0, 0, {"exhaust": {"buy": 0, "sell": 2}}) == ("偏多", "力竭 0買/2賣")
+    # 期貨方向與事件方向衝突 → 多空拉鋸
+    assert G._dir_read(100, 5, {"sweep": {"buy": 0, "sell": 4}}) == ("多空拉鋸", "掃單 0買/4賣")
+    assert G._dir_read(-25, 5, {"sweep": {"buy": 1}}) == ("多空拉鋸", "掃單 1買/0賣")
+
+
 def test_money_bucket():
     # call:價外 = strike > spot;put 相反。回 (bucket, 價外點數 m)
     assert G._money_bucket(28300, 28400, "C") == ("價內", -100)
@@ -106,6 +122,9 @@ def test_api_events_money_flow():
         assert e["flow"]["dur"] == 50 and e["flow"]["dur_n"] == 5      # 大單前 5 分鐘 +10×5
         assert e["flow"]["aft"] == -25 and e["flow"]["aft_n"] == 5     # 之後 5 分鐘 -5×5
         assert e["flow"]["ev"] == {"sweep": 1}
+        assert e["flow"]["evd"] == {"sweep": {"buy": 1}}
+        assert e["flow"]["dir"] == "多空拉鋸"      # 期貨後段偏空(-25)vs 掃單買方主動(偏多)衝突
+        assert e["flow"]["dir_why"] == "掃單 1買/0賣"
     finally:
         (G.ORDERFLOW_HISTORY_PATH, G.ORDERFLOW_EVENTS_PATH, G.ORDERFLOW_MINUTES_DIR, G.ORDERFLOW_EVENTS_ARCHIVE_DIR) = saved
     con.close()
@@ -113,6 +132,7 @@ def test_api_events_money_flow():
 
 if __name__ == "__main__":
     test_money_bucket()
+    test_dir_read()
     test_surge_frame_join()
     test_api_events_money_flow()
     print("OK")

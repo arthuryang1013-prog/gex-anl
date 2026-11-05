@@ -50,6 +50,8 @@
 
 **修正(2026-11-05,VPS 上線後發現)**:`api_events` 內層把 `money, m = _money_bucket(...)` 的 `m` 蓋掉了外層 DataFrame `m`;`src=NQ,QQQ,NDX`(多來源)時,第一個來源跑完 surge 後 `m` 變成 int,第二個來源 `ms = m[m["src"] == s]` 就 `TypeError: 'int' object is not subscriptable`。修法:內層改用 `mp` 變數。測試 `tests/test_surge_money.py` 已把 `src` 改成 `NQ,QQQ` 來抓這個回歸(舊程式會炸)。這是後端崩潰、不影響資料;網站整頁 `/api/events` 會 500。
 
+**再加「方向粗讀」(2026-11-05,使用者反映粗讀只有數字、沒有方向評斷)**:`_flow_context` 現在把附近事件按 buy/sell 分開記(`flow.evd`),並用新增的 `_dir_read()` 合成一個方向標籤 `flow.dir`(偏多 / 偏空 / 多空拉鋸 / 無明顯方向)與理由 `flow.dir_why`。規則:期貨後 5 分鐘淨量 + = 偏多、− = 偏空(要有 ≥3 分鐘);事件方向票——掃單/停損照主動方、吸收/冰山照承接方、力竭反向(buy=多方力竭 → 偏空);兩邊方向一致才給偏多/偏空,衝突給「多空拉鋸」。popup 的訂單流那段最上面多一行「粗讀方向:偏空(掃單 12賣/8買…)」,綠=偏多、紅=偏空、灰=拉鋸/無方向。**這是程式規則、未驗證預測力**,方向只是把訂單流事實翻成白話,不是預測;原有免責小字仍在。改 `gex_web_server.py`(`_dir_read`、`_flow_context`)與 `web/app.js`(`flowLine`);API 欄位 `flow` 多 `evd`/`dir`/`dir_why`(純新增)。測試 `tests/test_surge_money.py` 加 `test_dir_read` 覆蓋各方向組合。
+
 ---
 
 ## 2026-11-04 22:10(台北)· 新增「對沖模擬」分頁(NQ 選擇權 + NQ/MNQ 期貨對沖的紙上交易)· patch AR · commit 標題「對沖模擬頁」

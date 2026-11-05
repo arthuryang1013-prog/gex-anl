@@ -892,6 +892,38 @@ def _money_bucket(strike_nq, spot, cp):
     return "深度價外", int(round(m))
 
 
+def _dir_read(aft, aft_n, evd):
+    """方向粗讀(程式規則、未驗證):由「大單後 5 分鐘期貨淨量」與「附近事件方向」合成一個短判斷。回 (label, why)。
+    方向票:掃單/停損 = 主動方、吸收/冰山 = 承接方(照各自 buy/sell);力竭 = 反向(buy=多方力竭 → 偏空)。
+    期貨 delta_tr + = 淨買 → 偏多、− = 淨賣 → 偏空。"""
+    delta_side = 0
+    if aft_n >= 3:
+        delta_side = 1 if aft > 0 else -1 if aft < 0 else 0
+    vote = 0
+    why = []
+    for kind, tag in (("sweep", "掃單"), ("stop", "停損"), ("absorb", "吸收"), ("iceberg", "冰山")):
+        v = evd.get(kind) or {}
+        b, s = v.get("buy") or 0, v.get("sell") or 0
+        if b or s:
+            vote += b - s
+            why.append(f"{tag} {b}買/{s}賣")
+    ex = evd.get("exhaust") or {}
+    eb, es = ex.get("buy") or 0, ex.get("sell") or 0
+    if eb or es:
+        vote -= (eb - es)          # 力竭反向
+        why.append(f"力竭 {eb}買/{es}賣")
+    ev_side = 1 if vote > 0 else -1 if vote < 0 else 0
+    if delta_side and ev_side and delta_side != ev_side:
+        label = "多空拉鋸"
+    elif delta_side:
+        label = "偏多" if delta_side > 0 else "偏空"
+    elif ev_side:
+        label = "偏多" if ev_side > 0 else "偏空"
+    else:
+        label = "無明顯方向"
+    return label, ("; ".join(why)) if why else ""
+
+
 def _flow_context(events):
     """把選擇權大單與訂單流併排(程式粗讀,非 AI):每個事件附 flow 上下文,讓 popup 快速看「大單時/後期貨實際成交淨量
     (delta_tr)與附近訂單流事件」。只讀不寫;任何錯誤或沒資料就留 flow=None,不影響事件本身。"""
@@ -971,13 +1003,21 @@ def _flow_context(events):
             else:
                 aft += v; aft_n += 1
         evc = {}
+        evd = {}
         for ev in fe:
             if t - 300 <= ev["t"] <= t + 300:
-                evc[ev["k"]] = evc.get(ev["k"], 0) + 1
+                k = ev["k"]
+                evc[k] = evc.get(k, 0) + 1
+                side = ev.get("s")
+                if side in ("buy", "sell"):
+                    d = evd.setdefault(k, {})
+                    d[side] = d.get(side, 0) + 1
         if dur_n == 0 and aft_n == 0 and not evc:
             e["flow"] = None
         else:
-            e["flow"] = dict(dur=round(dur), dur_n=dur_n, aft=round(aft), aft_n=aft_n, ev=evc)
+            flow = dict(dur=round(dur), dur_n=dur_n, aft=round(aft), aft_n=aft_n, ev=evc, evd=evd)
+            flow["dir"], flow["dir_why"] = _dir_read(aft, aft_n, evd)
+            e["flow"] = flow
 
 
 def api_events(con, q):

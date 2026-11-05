@@ -2427,6 +2427,7 @@ const FE_N = { sweep: '掃單', stop: '停損', absorb: '吸收', iceberg: '冰�
 function flowLine(e) {
   const f = e.flow;
   if (!f) return '<div style="margin:2px 0;font-size:12px;color:var(--dim)">訂單流:此時間點無資料(或早於 bridge 上線)。</div>';
+  const dir = f.dir ? `<div style="margin:2px 0;font-size:12px">粗讀方向:<b style="color:${f.dir === '偏多' ? '#3fb27f' : f.dir === '偏空' ? '#e5533f' : 'var(--dim)'}">${f.dir}</b>${f.dir_why ? ` <span style="color:var(--dim);font-size:11px">(${f.dir_why})</span>` : ''}</div>` : '';
   const bits = [];
   if (f.dur_n >= 3) {
     const s = f.dur > 0 ? '淨買' : f.dur < 0 ? '淨賣' : '持平';
@@ -2439,7 +2440,7 @@ function flowLine(e) {
   const evs = [];
   for (const k of Object.keys(FE_N)) if (f.ev && f.ev[k]) evs.push(`${f.ev[k]} ${FE_N[k]}`);
   const body = bits.length ? bits.join(';') + '。' : '此 5 分鐘沒有可用 delta。';
-  return `<div style="margin:2px 0;font-size:12px;color:var(--dim)">訂單流:${body}${evs.length ? `附近另有 <b>${evs.join('、')}</b>。` : '附近無明顯訂單流事件。'}</div>`;
+  return dir + `<div style="margin:2px 0;font-size:12px;color:var(--dim)">訂單流:${body}${evs.length ? `附近另有 <b>${evs.join('、')}</b>。` : '附近無明顯訂單流事件。'}</div>`;
 }
 function evTitle(e) {
   const exp = fmtExp(e.expiry);
